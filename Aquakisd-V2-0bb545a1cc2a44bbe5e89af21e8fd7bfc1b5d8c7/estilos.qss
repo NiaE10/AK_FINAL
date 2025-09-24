@@ -1,0 +1,195 @@
+/* --- Colores y Fuentes Principales --- */
+* {
+    font-family: "Trebuchet MS", Arial, sans-serif;
+    color: #333;
+}
+
+/* --- Ventana Principal y Navegación --- */
+QMainWindow {
+    background-color: #307EA4; /* Azul principal de fondo */
+}
+
+#nav_bar {
+    background-color: #307EA4; /* Azul para la barra de navegación */
+    border-bottom: 2px solid #286a8d;
+}
+
+#nav_bar QLabel#logo {
+    font-size: 20px;
+    font-weight: bold;
+    color: white;
+    margin-left: 10px;
+}
+
+#nav_bar QPushButton {
+    color: white;
+    background-color: transparent;
+    border: none;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+#nav_bar QPushButton:hover {
+    background-color: #4095b9;
+    border-radius: 5px;
+}
+
+/* Estilo para el botón de navegación activo */
+#nav_bar QPushButton[current="true"] {
+    background-color: #4095b9;
+    border-radius: 5px;
+}
+
+/* Línea separadora en la barra de navegación */
+.separator {
+    border-right: 1px solid rgba(0,0,0,0.12);
+    padding-right: 6px;
+    margin-right: 6px;
+}
+
+/* --- Contenedores de Vistas --- */
+#central_widget, #central_area, #solicitudes_vista > QWidget, #inicio_central, #registrar_nino_view > #central_widget {
+    background-color: #307EA4;
+    border-radius: 0px;
+}
+
+/* --- Estilos Generales de Widgets --- */
+QLabel {
+    font-size: 14px;
+    color: white;
+}
+
+QPushButton {
+    background-color: white;
+    color: #307EA4;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #f2f2f2;
+    border-color: #307EA4;
+}
+
+QLineEdit, QComboBox, QDateEdit, QSpinBox, QTextEdit {
+    background-color: white;
+    color: black;
+    border: 1px solid #bdc3c7;
+    border-radius: 6px;
+    padding: 6px;
+    font-size: 14px;
+}
+
+QComboBox::drop-down {
+    border: none;
+}
+
+/* --- Estilos de Tablas --- */
+QTableWidget {
+    background-color: white;
+    color: black;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    gridline-color: #e0e0e0;
+    font-size: 14px;
+}
+
+QHeaderView::section {
+    background-color: #f2f2f2;
+    padding: 8px;
+    border: none;
+    border-bottom: 2px solid #e0e0e0;
+    font-weight: bold;
+    color: #333;
+}
+
+QTableWidget::item {
+    padding: 10px;
+    border-bottom: 1px solid #f0f0f0;
+}
+QTableWidget::item:selected {
+    background-color: #d0e7f9;
+    color: black;
+}
+
+/* --- Estilos Específicos por Vista/Widget --- */
+
+/* Botones grandes y prominentes */
+#btn_registrar, #guardar_btn {
+    padding: 10px 20px;
+    font-size: 15px;
+}
+
+/* Botones de acción en tablas */
+#btn_reinscribir, #btn_baja {
+    background-color: #307EA4;
+    color: white;
+    padding: 5px 10px;
+    font-size: 12px;
+    border-radius: 5px;
+}
+#btn_reinscribir:hover, #btn_baja:hover {
+    background-color: #4095b9;
+}
+
+QPushButton.edit_button {
+    background-color: transparent;
+    border: none;
+    font-size: 20px;
+    color: #307EA4;
+    padding: 4px;
+}
+QPushButton.edit_button:hover {
+    color: #4095b9;
+}
+
+/* Panel de filtros en la vista de consulta */
+#filters_panel {
+    background-color: #eaf6fc;
+    border-radius: 8px;
+}
+#filters_panel QLabel {
+    color: #333;
+    font-weight: bold;
+}
+#filters_panel QPushButton {
+     background-color: #307EA4;
+     color: white;
+}
+#filters_panel QPushButton:hover {
+     background-color: #4095b9;
+}
+
+/* Títulos de Vistas */
+#title_label, #inicio_title {
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 15px;
+}
+
+/* Contenedor del formulario de registro */
+#form_container, QGroupBox {
+    background-color: #f0f8ff;
+    border-radius: 8px;
+    padding: 20px;
+}
+QGroupBox {
+    font-size: 16px;
+    font-weight: bold;
+    color: #307EA4;
+}
+#form_container QLabel, QGroupBox QLabel, QGroupBox QRadioButton {
+    color: #333;
+    font-weight: normal;
+}
+
+/* Tiras decorativas */
+#top_strip, #bottom_strip {
+    background-color: #f0f8ff;
+}
