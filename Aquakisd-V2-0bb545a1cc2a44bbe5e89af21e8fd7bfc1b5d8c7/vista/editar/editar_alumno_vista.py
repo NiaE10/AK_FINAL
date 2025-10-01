@@ -1,7 +1,7 @@
 # vista/editar/editar_alumno_vista.py
 
 import os
-from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QPushButton, QComboBox, QDateEdit, QLabel
+from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QPushButton, QComboBox, QDateEdit, QLabel, QHBoxLayout
 from PySide6.QtCore import QDate
 
 
@@ -50,7 +50,13 @@ class EditarAlumnoVista(QDialog):
         self.btn_guardar.setObjectName("btn_guardar")
         self.btn_guardar.clicked.connect(self.accept)
         self.layout.addRow("", self.btn_guardar)
-
+        self.btn_historial = QPushButton("Ver Historial")
+        self.btn_historial.setObjectName("btn_historial")
+  
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.btn_guardar)
+        button_layout.addWidget(self.btn_historial)
+        self.layout.addRow("", button_layout)
     def _create_date_edit(self):
         date_edit = QDateEdit()
         fecha_str = self.datos_alumno.get('FECHA_DE_NACIMIENTO', '') or ''

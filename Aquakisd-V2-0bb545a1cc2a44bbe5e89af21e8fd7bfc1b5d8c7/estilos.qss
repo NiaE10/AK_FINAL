@@ -112,9 +112,17 @@ QTableWidget::item {
     padding: 10px;
     border-bottom: 1px solid #f0f0f0;
 }
+
 QTableWidget::item:selected {
     background-color: #d0e7f9;
     color: black;
+    border: 1px solid #d0e7f9;
+              
+}
+
+QTableWidget::item:focus {
+    outline: none;
+    border: 0px
 }
 
 /* --- Estilos Específicos por Vista/Widget --- */

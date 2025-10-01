@@ -9,7 +9,7 @@ if not os.path.exists(DB_NAME):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Tabla PROGRAMA con NUM_CLASES
+    # Tabla PROGRAMA 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS PROGRAMA (
             ID_PROGRAMA INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -18,7 +18,7 @@ if not os.path.exists(DB_NAME):
         )
     ''')
     
-    # Tabla MAESTROS (sin cambios)
+    # Tabla MAESTROS 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS MAESTROS (
             ID_MAESTRO INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +28,7 @@ if not os.path.exists(DB_NAME):
         )
     ''')
     
-    # Tabla CLASES (sin cambios)
+    # Tabla CLASES 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS CLASES (
             ID_CLASE INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +45,7 @@ if not os.path.exists(DB_NAME):
         )
     ''')
     
-    # Tabla ALUMNOS (sin cambios)
+    # Tabla ALUMNOS 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ALUMNOS (
             ID_ALUMNO INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +63,7 @@ if not os.path.exists(DB_NAME):
         )
     ''')
 
-    # Tabla INSCRIPCIONES con CLASES_RESTANTES
+    # Tabla INSCRIPCIONES 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS INSCRIPCIONES (
             ID_INSCRIPCION INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,6 +71,7 @@ if not os.path.exists(DB_NAME):
             ID_PROGRAMA INTEGER,
             ID_CLASE INTEGER,
             FECHA_INICIO TEXT NOT NULL,
+            FECHA_FIN TEXT,
             NUM_CLASES INTEGER,
             CLASES_RESTANTES INTEGER,
             ESTADO TEXT DEFAULT 'Activo',
@@ -86,6 +87,16 @@ if not os.path.exists(DB_NAME):
             FECHA TEXT NOT NULL,
             FOREIGN KEY(ID_INSCRIPCION) REFERENCES INSCRIPCIONES(ID_INSCRIPCION)
         )
+    ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS HISTORIAL_MODIFICACIONES (
+        ID_HISTORIAL INTEGER PRIMARY KEY AUTOINCREMENT,
+        ID_ALUMNO INTEGER NOT NULL,
+        FECHA TEXT NOT NULL,
+        TIPO_MODIFICACION TEXT NOT NULL,
+        DETALLES TEXT,
+        FOREIGN KEY(ID_ALUMNO) REFERENCES ALUMNOS(ID_ALUMNO)
+    )
     ''')
     
     conn.commit()

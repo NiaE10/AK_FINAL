@@ -49,6 +49,8 @@ class ConsultaAlumnosVista(QWidget):
         central_layout.addWidget(filtro_panel)
 
         self.table = QTableWidget(0, 12, central)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setHorizontalHeaderLabels([
             'ID', 'Nombre', 'Apellido', 'Edad', 'Teléfono', 'Teléfono 2',
             'Fecha de Nacimiento', 'Programa', 'Observaciones', 'Estado',

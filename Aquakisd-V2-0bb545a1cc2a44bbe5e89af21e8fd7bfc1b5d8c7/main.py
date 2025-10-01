@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
         self.controlador_solicitudes.set_controlador_alumnos(self.controlador_alumnos)
         self.controlador_alumnos.alumno_actualizado.connect(self.controlador_solicitudes.cargar_solicitudes)
         self.controlador_inicio.alumno_dado_de_baja.connect(self.controlador_alumnos.cargar_alumnos)
+        self.controlador_inicio.alumno_reinscrito.connect(self.controlador_alumnos.cargar_alumnos)
         self.controlador_nino.alumno_registrado.connect(self.controlador_alumnos.cargar_alumnos)
 
 

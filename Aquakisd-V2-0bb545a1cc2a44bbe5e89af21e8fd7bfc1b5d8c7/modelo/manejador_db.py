@@ -162,19 +162,15 @@ class ManejadorDB:
             return []
         return results
 
- # En modelo/manejador_db.py
-
-# En modelo/manejador_db.py
-
     def reinscribir_inscripcion(self, id_inscripcion):
         """
-        Reinscribe al alumno, actualizando la fecha de inicio a hoy,
-        sumando el número de clases del programa y recalculando la fecha de fin.
+        Reinscribe al alumno, sumando el número de clases del programa
+        y recalculando la fecha de fin a partir de la fecha de fin existente o de hoy.
         """
         try:
-        # 1. Obtener datos de la inscripción y clase asociada
+            # 1. Obtener datos de la inscripción, incluyendo la fecha de fin actual
             self.cursor.execute("""
-                SELECT I.ID_PROGRAMA, I.ID_CLASE, C.DIAS_DE_CLASES
+                SELECT I.ID_PROGRAMA, I.ID_CLASE, C.DIAS_DE_CLASES, I.FECHA_FIN
                 FROM INSCRIPCIONES I
                 JOIN CLASES C ON I.ID_CLASE = C.ID_CLASE
                 WHERE I.ID_INSCRIPCION = ?
@@ -183,37 +179,65 @@ class ManejadorDB:
             if not resultado_inscripcion:
                 raise ValueError(f"No se encontró la inscripción con ID {id_inscripcion}")
 
-            id_programa, id_clase, dias_clase = resultado_inscripcion
+            id_programa, id_clase, dias_clase, fecha_fin_actual_str = resultado_inscripcion
 
             # 2. Obtener el NUM_CLASES del programa
             self.cursor.execute("SELECT NUM_CLASES FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_programa,))
             resultado_programa = self.cursor.fetchone()
-        
-            # Si el programa no tiene un número de clases, usamos 10 como valor por defecto
+
             if not resultado_programa or resultado_programa[0] is None:
                 num_clases_a_sumar = 10
                 print(f"Advertencia: El programa con ID {id_programa} no tiene un número de clases definido. Se usarán 10 clases por defecto.")
             else:
                 num_clases_a_sumar = resultado_programa[0]
 
-            # 3. Calcular la nueva fecha de fin
-            fecha_inicio_hoy = datetime.now().strftime('%Y-%m-%d')
-            nueva_fecha_fin = self.calcular_fecha_vencimiento(fecha_inicio_hoy, num_clases_a_sumar, dias_clase)
+            # 3. Determinar la fecha de partida para el cálculo
+            hoy = datetime.now().date()
+            fecha_de_partida = hoy
 
-            # 4. Actualizar la inscripción con los nuevos valores
+            if fecha_fin_actual_str:
+                try:
+                    fecha_fin_actual = datetime.fromisoformat(fecha_fin_actual_str).date()
+                    if fecha_fin_actual > hoy:
+                        fecha_de_partida = fecha_fin_actual
+                except (ValueError, TypeError):
+                    # Si la fecha_fin_actual no es válida, simplemente usamos hoy
+                    pass
+        
+            # 4. Calcular la nueva fecha de fin
+            nueva_fecha_fin = self.calcular_fecha_vencimiento(
+                fecha_de_partida.isoformat(), 
+                num_clases_a_sumar, 
+                dias_clase
+            )
+
+            # 5. Actualizar la inscripción
             self.cursor.execute("""
                 UPDATE INSCRIPCIONES
-                SET FECHA_INICIO = ?,
-                    CLASES_RESTANTES = COALESCE(CLASES_RESTANTES, 0) + ?,
+                SET CLASES_RESTANTES = COALESCE(CLASES_RESTANTES, 0) + ?,
                     FECHA_FIN = ?
                 WHERE ID_INSCRIPCION = ?
-            """, (fecha_inicio_hoy, num_clases_a_sumar, nueva_fecha_fin, id_inscripcion))
-        
+            """, (num_clases_a_sumar, nueva_fecha_fin, id_inscripcion))
+
+            self.conn.commit()
+            self.cursor.execute("SELECT ID_ALUMNO FROM INSCRIPCIONES WHERE ID_INSCRIPCION = ?", (id_inscripcion,))
+            id_alumno_res = self.cursor.fetchone()
+            if id_alumno_res:
+                self.cursor.execute("SELECT NOMBRE_PROGRAMA FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_programa,))
+                nombre_programa_res = self.cursor.fetchone()
+                nombre_programa = nombre_programa_res[0] if nombre_programa_res else f"ID {id_programa}"
+    
+                self.cursor.execute("SELECT DIAS_DE_CLASES, HORA_INICIO FROM CLASES WHERE ID_CLASE = ?", (id_clase,))
+                clase_res = self.cursor.fetchone()
+                horario_clase = f"{clase_res[0]} - {clase_res[1]}" if clase_res else f"ID {id_clase}"
+    
+                detalles = f"Reinscrito en {nombre_programa}, horario: {horario_clase}. Se agregaron {num_clases_a_sumar} clases."
+                self.agregar_historial(id_alumno_res[0], "Reinscripción", detalles)
             self.conn.commit()
             return True
         except Exception as e:
             print(f"Error al reinscribir la inscripción: {e}")
-            self.conn.rollback() # Revertir cambios en caso de error
+            self.conn.rollback()
             return False
 
     def baja_alumno(self, id_alumno):
@@ -224,6 +248,7 @@ class ManejadorDB:
             self.cursor.execute("UPDATE INSCRIPCIONES SET ESTADO = 'Baja' WHERE ID_ALUMNO = ? AND (ESTADO IS NULL OR ESTADO = 'Activo')", (id_alumno,))
         
         # Si todo sale bien, guarda los cambios
+            self.agregar_historial(id_alumno, "Baja", "El estado del alumno se cambió a Inactivo.")
             self.conn.commit()
             return True
         except Exception as e:
@@ -483,6 +508,8 @@ class ManejadorDB:
             datos_actualizados['id_clasefk'],
             alumno_id
         ))
+        detalles = "Datos del alumno actualizados."
+        self.agregar_historial(alumno_id, "Edición", detalles)
         self.conn.commit()
 
     def actualizar_estado_alumno(self, alumno_id, nuevo_estado):
@@ -595,12 +622,17 @@ class ManejadorDB:
         resultado = self.cursor.fetchone()
         if not resultado:
             raise ValueError(f"El programa con ID {id_programa} no existe o no tiene un número de clases definido.")
-        
+     
         num_clases_total = resultado[0]
 
-        self.cursor.execute("SELECT DIAS_DE_CLASES FROM CLASES WHERE ID_CLASE = ?", (id_clase,))
+        self.cursor.execute("SELECT DIAS_DE_CLASES, HORA_INICIO FROM CLASES WHERE ID_CLASE = ?", (id_clase,))
         dias_clase_row = self.cursor.fetchone()
         dias_clase = dias_clase_row[0] if dias_clase_row else ""
+        horario_clase_str = f"{dias_clase} - {dias_clase_row[1]}" if dias_clase_row else f"ID {id_clase}"
+
+        self.cursor.execute("SELECT NOMBRE_PROGRAMA FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_programa,))
+        nombre_programa_row = self.cursor.fetchone()
+        nombre_programa = nombre_programa_row[0] if nombre_programa_row else f"ID {id_programa}"
 
         fecha_fin = self.calcular_fecha_vencimiento(fecha_inicio, num_clases_total, dias_clase)
 
@@ -608,9 +640,15 @@ class ManejadorDB:
             INSERT INTO INSCRIPCIONES (ID_ALUMNO, ID_PROGRAMA, ID_CLASE, FECHA_INICIO, FECHA_FIN, NUM_CLASES, CLASES_RESTANTES, ESTADO)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'Activo')
         ''', (id_alumno, id_programa, id_clase, fecha_inicio, fecha_fin, num_clases_total, num_clases_total))
-        
+    
         self.conn.commit()
-        return self.cursor.lastrowid
+        id_inscripcion = self.cursor.lastrowid
+    
+        # Detalle mejorado para el historial
+        detalles = f"Inscrito en {nombre_programa}, horario: {horario_clase_str}."
+        self.agregar_historial(id_alumno, "Inscripción", detalles)
+    
+        return id_inscripcion
 
     def descontar_clases_asistidas(self):
         """
@@ -670,6 +708,19 @@ class ManejadorDB:
             except Exception as e:
                 print(f"No se pudo agregar la columna FECHA_FIN: {e}")
     
+    def agregar_historial(self, id_alumno, tipo_modificacion, detalles=''):
+        """Agrega un registro al historial de modificaciones del alumno."""
+        try:
+            fecha_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self.cursor.execute('''
+                INSERT INTO HISTORIAL_MODIFICACIONES (ID_ALUMNO, FECHA, TIPO_MODIFICACION, DETALLES)
+                VALUES (?, ?, ?, ?)
+            ''', (id_alumno, fecha_actual, tipo_modificacion, detalles))
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error al agregar al historial: {e}")
+            self.conn.rollback()
+    
     def obtener_alumnos_con_pocas_clases(self, umbral=4):
         """
         Obtiene los alumnos a quienes les quedan `umbral` o menos clases.
@@ -684,4 +735,14 @@ class ManejadorDB:
             WHERE I.ESTADO = 'Activo' AND I.CLASES_RESTANTES <= ?
             ORDER BY I.CLASES_RESTANTES ASC
         ''', (umbral,))
+        return self.cursor.fetchall()
+    
+    def obtener_historial_alumno(self, alumno_id):
+        """Obtiene el historial de modificaciones para un alumno específico."""
+        self.cursor.execute('''
+            SELECT FECHA, TIPO_MODIFICACION, DETALLES 
+            FROM HISTORIAL_MODIFICACIONES 
+            WHERE ID_ALUMNO = ? 
+            ORDER BY FECHA DESC
+        ''', (alumno_id,))
         return self.cursor.fetchall()

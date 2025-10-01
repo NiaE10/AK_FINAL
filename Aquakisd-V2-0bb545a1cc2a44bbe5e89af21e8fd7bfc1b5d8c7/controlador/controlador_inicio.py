@@ -38,7 +38,8 @@ class WorkerDescuento(QObject):
 # --- Controlador Principal ---
 class ControladorInicio(QObject):
     alumno_dado_de_baja = Signal()
-
+    alumno_reinscrito = Signal()
+    
     def __init__(self, vista, modelo):
         super().__init__()
         self.vista = vista
@@ -123,6 +124,7 @@ class ControladorInicio(QObject):
                 if self.modelo.reinscribir_inscripcion(id_inscripcion):
                     QMessageBox.information(self.vista, "Reinscripción", "Alumno reinscrito correctamente.")
                     self.cargar_alertas()
+                    self.alumno_reinscrito.emit()
                 else:
                     QMessageBox.warning(self.vista, "Reinscripción", "No se pudo reinscribir al alumno.")
             except Exception as e:
