@@ -98,7 +98,21 @@ class RegistrarNinoVista(QWidget):
         for date_edit in [self.fecha_nacimiento, self.fecha_inicio]:
             date_edit.setDate(QDate.currentDate())
             date_edit.setDisplayFormat("dd/MM/yyyy")
-
+        
+        dropdown_style = """
+            QAbstractItemView {
+                background-color: white;
+                color: black;
+                selection-background-color: #4095b9;
+                selection-color: white;
+            }
+        """
+        for date_edit in [self.fecha_nacimiento, self.fecha_inicio]:
+            calendar = date_edit.calendarWidget()
+            if calendar:
+                combo_boxes = calendar.findChildren(QComboBox)
+                for combo in combo_boxes:
+                    combo.view().setStyleSheet(dropdown_style)
         return central_widget
     
     def _create_estado_widget(self):

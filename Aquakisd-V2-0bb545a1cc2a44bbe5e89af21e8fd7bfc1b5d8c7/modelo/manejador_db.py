@@ -230,9 +230,9 @@ class ManejadorDB:
                 self.cursor.execute("SELECT DIAS_DE_CLASES, HORA_INICIO FROM CLASES WHERE ID_CLASE = ?", (id_clase,))
                 clase_res = self.cursor.fetchone()
                 horario_clase = f"{clase_res[0]} - {clase_res[1]}" if clase_res else f"ID {id_clase}"
-    
-                detalles = f"Reinscrito en {nombre_programa}, horario: {horario_clase}. Se agregaron {num_clases_a_sumar} clases."
-                self.agregar_historial(id_alumno_res[0], "Reinscripción", detalles)
+                
+                detalles = f"Reinscrito en {nombre_programa}, horario: {horario_clase}."
+                self.agregar_historial(id_alumno_res[0], "Reinscripción", detalles, fecha_inicio=fecha_de_partida.isoformat(), fecha_fin=nueva_fecha_fin)
             self.conn.commit()
             return True
         except Exception as e:
@@ -349,10 +349,16 @@ class ManejadorDB:
             pass
 
     # Métodos para manejar maestros
-    def listar_maestros(self):
-        """Devuelve lista de maestros: (ID_MAESTRO, NOMBRE_MAESTRO, NUMERO_DE_TELEFONO, ESTADO)"""
-        self.cursor.execute('SELECT ID_MAESTRO, NOMBRE_MAESTRO, NUMERO_DE_TELEFONO, ESTADO FROM MAESTROS')
-        return self.cursor.fetchall()
+    def listar_maestros(self, solo_activos=False): 
+            """Devuelve lista de maestros: (ID_MAESTRO, NOMBRE_MAESTRO, NUMERO_DE_TELEFONO, ESTADO)"""
+            sql = 'SELECT ID_MAESTRO, NOMBRE_MAESTRO, NUMERO_DE_TELEFONO, ESTADO FROM MAESTROS'
+            params = []
+            if solo_activos:
+                sql += ' WHERE ESTADO = ?'
+                params.append('Activo')
+            sql += ' ORDER BY NOMBRE_MAESTRO' 
+            self.cursor.execute(sql, params)
+            return self.cursor.fetchall()
 
     def buscar_maestros_por_nombre(self, query):
         """Busca maestros por nombre (LIKE) y retorna filas como listar_maestros."""
@@ -508,8 +514,6 @@ class ManejadorDB:
             datos_actualizados['id_clasefk'],
             alumno_id
         ))
-        detalles = "Datos del alumno actualizados."
-        self.agregar_historial(alumno_id, "Edición", detalles)
         self.conn.commit()
 
     def actualizar_estado_alumno(self, alumno_id, nuevo_estado):
@@ -517,7 +521,6 @@ class ManejadorDB:
         self.cursor.execute('UPDATE ALUMNOS SET ESTADO = ? WHERE ID_ALUMNO = ?', (nuevo_estado, alumno_id))
         self.conn.commit()
     
-
     def obtener_clases_y_descripcion(self):
         self.cursor.execute('SELECT ID_CLASE, DIAS_DE_CLASES || " - " || HORA_INICIO, ID_PROGRAMAFK FROM CLASES')
         return self.cursor.fetchall()
@@ -594,19 +597,34 @@ class ManejadorDB:
         self.cursor.execute(sql, tuple(program_ids))
         return self.cursor.fetchall()
 
-    def obtener_clases_detalle_por_programas(self, program_ids):
+    def obtener_clases_detalle_por_programas(self, program_ids, nombre_instructor_filtro=None):
         """Devuelve clases detalladas para los programas indicados:
-        (ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK)
+        (ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, NOMBRE_MAESTRO_ACTIVO)
         """
         if not program_ids:
             return []
+
         placeholders = ','.join(['?'] * len(program_ids))
+        params = list(program_ids) # Convertir a lista para poder añadir más parámetros
+
+        # Construcción base de la consulta SQL
         sql = f'''
-            SELECT ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK
-            FROM CLASES
-            WHERE ID_PROGRAMAFK IN ({placeholders})
+            SELECT C.ID_CLASE, C.HORA_INICIO, C.HORA_FIN, C.CAPACIDAD, C.DIAS_DE_CLASES, C.ID_PROGRAMAFK,
+                   CASE
+                       WHEN M.ESTADO = 'Activo' THEN M.NOMBRE_MAESTRO
+                       ELSE NULL
+                   END AS NOMBRE_MAESTRO_ACTIVO
+            FROM CLASES C
+            LEFT JOIN MAESTROS M ON C.ID_MAESTROFK = M.ID_MAESTRO
+            WHERE C.ID_PROGRAMAFK IN ({placeholders})
         '''
-        self.cursor.execute(sql, tuple(program_ids))
+
+        if nombre_instructor_filtro:
+            sql += " AND (M.ESTADO = 'Activo' AND M.NOMBRE_MAESTRO LIKE ?)"
+            params.append(f"%{nombre_instructor_filtro}%") 
+        # -------------------------------------------------------------
+
+        self.cursor.execute(sql, tuple(params)) 
         return self.cursor.fetchall()
 
     def obtener_primera_clase_para_programa(self, id_programa):
@@ -646,7 +664,7 @@ class ManejadorDB:
     
         # Detalle mejorado para el historial
         detalles = f"Inscrito en {nombre_programa}, horario: {horario_clase_str}."
-        self.agregar_historial(id_alumno, "Inscripción", detalles)
+        self.agregar_historial(id_alumno, "Inscripción", detalles, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
     
         return id_inscripcion
 
@@ -708,14 +726,14 @@ class ManejadorDB:
             except Exception as e:
                 print(f"No se pudo agregar la columna FECHA_FIN: {e}")
     
-    def agregar_historial(self, id_alumno, tipo_modificacion, detalles=''):
+    def agregar_historial(self, id_alumno, tipo_modificacion, detalles='', fecha_inicio=None, fecha_fin=None):
         """Agrega un registro al historial de modificaciones del alumno."""
         try:
             fecha_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.cursor.execute('''
-                INSERT INTO HISTORIAL_MODIFICACIONES (ID_ALUMNO, FECHA, TIPO_MODIFICACION, DETALLES)
-                VALUES (?, ?, ?, ?)
-            ''', (id_alumno, fecha_actual, tipo_modificacion, detalles))
+                INSERT INTO HISTORIAL_MODIFICACIONES (ID_ALUMNO, FECHA, TIPO_MODIFICACION, DETALLES, FECHA_INICIO, FECHA_FIN)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (id_alumno, fecha_actual, tipo_modificacion, detalles, fecha_inicio, fecha_fin))
             self.conn.commit()
         except Exception as e:
             print(f"Error al agregar al historial: {e}")
@@ -736,11 +754,48 @@ class ManejadorDB:
             ORDER BY I.CLASES_RESTANTES ASC
         ''', (umbral,))
         return self.cursor.fetchall()
+
+    def calcular_fecha_vencimiento(self, fecha_inicio_str, num_clases, dias_str):
+        """Calcula la fecha de vencimiento (ISO yyyy-mm-dd) de una inscripción."""
+        try:
+            if not fecha_inicio_str:
+                return None
+            
+            fecha_inicio = datetime.fromisoformat(fecha_inicio_str)
+
+            sesiones_por_semana = 1
+            if dias_str:
+                partes = self._split_days(dias_str)
+                sesiones_por_semana = max(1, len(partes))
+
+            if not num_clases or int(num_clases) <= 0:
+                return None
+
+            semanas_de_clases = math.ceil(int(num_clases) / sesiones_por_semana)
+            fecha_de_vencimiento = fecha_inicio + timedelta(weeks=semanas_de_clases)
+            
+            return fecha_de_vencimiento.date().isoformat()
+        except Exception:
+            # Si algo falla, es mejor no tener fecha de fin a tener una incorrecta.
+            return None
+    
+    def asignar_instructor_a_clase(self, id_clase, id_maestro):
+        """Asigna un ID_MAESTROFK a una clase específica."""
+        try:
+            self.cursor.execute("UPDATE CLASES SET ID_MAESTROFK = ? WHERE ID_CLASE = ?", (id_maestro, id_clase))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error al asignar instructor a clase: {e}")
+            self.conn.rollback()
+            return False
     
     def obtener_historial_alumno(self, alumno_id):
+        
+    
         """Obtiene el historial de modificaciones para un alumno específico."""
         self.cursor.execute('''
-            SELECT FECHA, TIPO_MODIFICACION, DETALLES 
+            SELECT FECHA, TIPO_MODIFICACION, FECHA_INICIO, FECHA_FIN, DETALLES 
             FROM HISTORIAL_MODIFICACIONES 
             WHERE ID_ALUMNO = ? 
             ORDER BY FECHA DESC

@@ -92,7 +92,8 @@ class MainWindow(QMainWindow):
         self.controlador_maestros = ControladorMaestros(self.vistas["instructores"], self.modelo)
         self.controlador_alumnos = ControladorAlumnos(self.vistas["alumnos"], self.modelo)
         self.controlador_solicitudes = ControladorSolicitudes(self.vistas["solicitudes"], self.modelo)
-        
+        self.controlador_alumnos.alumno_actualizado.connect(self.vistas["programas"].actualizar_vista_actual)
+        self.controlador_maestros.maestro_actualizado.connect(self.vistas["programas"].actualizar_vista_actual)
         self.controlador_solicitudes.set_controlador_alumnos(self.controlador_alumnos)
         self.controlador_alumnos.alumno_actualizado.connect(self.controlador_solicitudes.cargar_solicitudes)
         self.controlador_inicio.alumno_dado_de_baja.connect(self.controlador_alumnos.cargar_alumnos)

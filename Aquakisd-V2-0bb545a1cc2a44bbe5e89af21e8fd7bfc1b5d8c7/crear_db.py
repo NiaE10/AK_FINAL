@@ -95,6 +95,8 @@ if not os.path.exists(DB_NAME):
         FECHA TEXT NOT NULL,
         TIPO_MODIFICACION TEXT NOT NULL,
         DETALLES TEXT,
+        FECHA_INICIO TEXT,
+        FECHA_FIN TEXT,
         FOREIGN KEY(ID_ALUMNO) REFERENCES ALUMNOS(ID_ALUMNO)
     )
     ''')

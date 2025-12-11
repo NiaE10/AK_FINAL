@@ -76,7 +76,7 @@ QPushButton:hover {
     border-color: #307EA4;
 }
 
-QLineEdit, QComboBox, QDateEdit, QSpinBox, QTextEdit {
+QLineEdit, QDateEdit, QSpinBox, QTextEdit {
     background-color: white;
     color: black;
     border: 1px solid #bdc3c7;
@@ -85,10 +85,21 @@ QLineEdit, QComboBox, QDateEdit, QSpinBox, QTextEdit {
     font-size: 14px;
 }
 
-QComboBox::drop-down {
-    border: none;
+QComboBox {
+    background-color: white;
+    color: black;
+    border: 1px solid #bdc3c7;
+    border-radius: 6px;
+    padding: 6px;
+    font-size: 14px;
 }
-
+QComboBox QAbstractItemView {
+    background-color: white;
+    color: black;
+    border: 1px solid #bdc3c7;
+    selection-background-color: #4095b9;
+    selection-color: white;
+}
 /* --- Estilos de Tablas --- */
 QTableWidget {
     background-color: white;
@@ -125,6 +136,73 @@ QTableWidget::item:focus {
     border: 0px
 }
 
+ /* --- ESTILOS PARA EL CALENDARIO --- */
+QCalendarWidget {
+    background-color: white;
+    border: 1px solid #d0e7f9; /* Borde azul claro */
+}
+
+/* Header del calendario (mes, año y flechas) */
+QCalendarWidget QWidget#qt_calendar_navigationbar {
+    background-color: #307EA4; /* Azul principal */
+    border-bottom: 1px solid #286a8d;
+}
+
+/* Botones de flecha para navegar meses */
+QCalendarWidget QToolButton {
+    color: white;
+    background-color: transparent;
+    font-size: 18px;
+    padding: 5px;
+}
+QCalendarWidget QToolButton:hover {
+    background-color: #4095b9; /* Azul más claro al pasar el ratón */
+    border-radius: 4px;
+}
+
+/* Desplegables de Mes y Año */
+QCalendarWidget QComboBox {
+    background-color: white;
+    color: #333;
+    border: 1px solid #bdc3c7;
+    padding: 4px;
+    font-weight: bold;
+}
+QCalendarWidget QComboBox::drop-down {
+    border: none; /* Quita el borde de la flecha del desplegable */
+}
+
+/* Lista emergente de Meses/Años */
+QCalendarWidget QComboBox QAbstractItemView {
+    background-color: white;
+    color: #333;
+    border: 1px solid #d3d3d3;
+    selection-background-color: #4095b9;
+    selection-color: white;
+    outline: 0px;
+}
+
+/* Días de la semana (Lun, Mar, etc.) */
+QCalendarWidget QTableView QHeaderView::section {
+    background-color: #eaf6fc; /* Azul muy pálido */
+    color: #307EA4;
+    padding: 5px;
+    font-weight: bold;
+    border: none;
+}
+
+/* Grilla de los días */
+QCalendarWidget QTableView {
+    background-color: white;
+    color: #333;
+    selection-background-color: #307EA4; /* Azul principal al seleccionar */
+    selection-color: white;
+}
+
+/* Días que no pertenecen al mes actual */
+QCalendarWidget QTableView::item:disabled {
+    color: #c0c0c0;
+}
 /* --- Estilos Específicos por Vista/Widget --- */
 
 /* Botones grandes y prominentes */

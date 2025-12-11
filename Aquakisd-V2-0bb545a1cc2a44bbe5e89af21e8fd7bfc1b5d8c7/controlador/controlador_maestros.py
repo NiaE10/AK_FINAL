@@ -1,7 +1,9 @@
 from modelo.manejador_db import ManejadorDB
-
-class ControladorMaestros:
+from PySide6.QtCore import Signal, QObject 
+class ControladorMaestros(QObject):
+    maestro_actualizado = Signal()
     def __init__(self, vista, modelo=None):
+        super().__init__()
         self.vista = vista
         self.modelo = modelo if modelo else ManejadorDB()
         try:
@@ -45,6 +47,7 @@ class ControladorMaestros:
             self.modelo.insertar_maestro(nombre, telefono, estado)
             self.vista.mostrar_mensaje('Instructor agregado correctamente.')
             self.cargar_maestros()
+            self.maestro_actualizado.emit()
         except Exception as e:
             self.vista.mostrar_mensaje(f'Error al agregar: {e}')
 
@@ -81,6 +84,7 @@ class ControladorMaestros:
                     self.modelo.actualizar_maestro(id_maestro, new_nombre, new_tel, new_estado)
                     self.vista.mostrar_mensaje('Instructor actualizado.')
                     self.cargar_maestros()
+                    self.maestro_actualizado.emit()
                     dlg.accept()
                 except Exception as e:
                     self.vista.mostrar_mensaje(f'Error al actualizar: {e}')

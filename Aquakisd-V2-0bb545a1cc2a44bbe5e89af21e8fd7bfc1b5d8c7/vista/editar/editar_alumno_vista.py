@@ -64,6 +64,19 @@ class EditarAlumnoVista(QDialog):
         date_edit.setDate(qdate if qdate.isValid() else QDate.currentDate())
         date_edit.setCalendarPopup(True)
         date_edit.setDisplayFormat("dd/MM/yyyy")
+        dropdown_style = """
+            QAbstractItemView {
+                background-color: white;
+                color: black;
+                selection-background-color: #4095b9;
+                selection-color: white;
+            }
+        """
+        calendar = date_edit.calendarWidget()
+        if calendar:
+            combo_boxes = calendar.findChildren(QComboBox)
+            for combo in combo_boxes:
+                combo.view().setStyleSheet(dropdown_style)
         return date_edit
 
     def _create_estado_combo(self):
