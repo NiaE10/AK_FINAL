@@ -482,18 +482,72 @@ class ManejadorDB:
         return None
 
     def actualizar_alumno(self, alumno_id, datos_actualizados):
+        
         id_clase_actual = None
-        self.cursor.execute('SELECT ID_CLASEFK FROM ALUMNOS WHERE ID_ALUMNO = ?', (alumno_id,))
+        estado_actual = None
+        
+        # 1. Obtener datos actuales
+        self.cursor.execute('SELECT ID_CLASEFK, ESTADO FROM ALUMNOS WHERE ID_ALUMNO = ?', (alumno_id,))
         row = self.cursor.fetchone()
         if row:
             id_clase_actual = row[0]
+            estado_actual = row[1]
 
-        if datos_actualizados['estado'] == 'Inactivo' and id_clase_actual:
+        # 2. Determinar Clase Destino
+        id_clase_destino = datos_actualizados.get('id_clasefk')
+        # Si no viene en el update, usamos la que ya tenía
+        if id_clase_destino is None:
+            id_clase_destino = id_clase_actual
+
+        # 3. RESTRICCIÓN DE NEGOCIO (EL CANDADO)
+        nuevo_estado = datos_actualizados.get('estado')
+        
+        # Si quiere ser ACTIVO, DEBE tener una clase (destino o actual)
+        if nuevo_estado == 'Activo' and not id_clase_destino:
+            raise ValueError("No se puede activar al alumno sin asignarle un Programa y una Clase.")
+        
+        verificar_cupo = False
+        if nuevo_estado == 'Activo':
+            if estado_actual != 'Activo':
+                verificar_cupo = True # Está entrando de fuera
+            elif id_clase_actual != id_clase_destino:
+                verificar_cupo = True # Se está cambiando de grupo
+
+        if verificar_cupo and id_clase_destino:
+            capacidad = self.obtener_capacidad_clase(id_clase_destino) or 0
+            ocupados = self.contar_alumnos_en_clase(id_clase_destino)
+            if ocupados >= capacidad:
+                raise ValueError(f"La clase seleccionada está llena ({ocupados}/{capacidad}). No se puede guardar.")
+
+        # Si pasa a Inactivo, limpiamos la clase
+        if nuevo_estado == 'Inactivo':
             datos_actualizados['id_clasefk'] = None
+            id_clase_destino = None
 
-        """
-        Actualiza los datos de un alumno en la base de datos.
-        """
+        # --- LÓGICA DE HISTORIAL ---
+        if estado_actual and nuevo_estado and estado_actual != nuevo_estado:
+            detalles = f"Estado: {estado_actual} a {nuevo_estado}."
+            f_ini = None
+            f_fin = None
+            
+            # Si pasó el candado de arriba, seguro tiene clase, así que calculamos sin miedo
+            if estado_actual == 'Inactivo' and nuevo_estado == 'Activo':
+                    self.cursor.execute('''
+                        SELECT C.DIAS_DE_CLASES, P.NUM_CLASES
+                        FROM CLASES C
+                        JOIN PROGRAMA P ON C.ID_PROGRAMAFK = P.ID_PROGRAMA
+                        WHERE C.ID_CLASE = ?
+                    ''', (id_clase_destino,))
+                    datos_calc = self.cursor.fetchone()
+                    
+                    if datos_calc:
+                        f_ini = datetime.now().date().isoformat()
+                        f_fin = self.calcular_fecha_vencimiento(f_ini, datos_calc[1], datos_calc[0])
+                        detalles += " Se generó nuevo periodo."
+
+            self.agregar_historial(alumno_id, "Cambio de Estado", detalles, fecha_inicio=f_ini, fecha_fin=f_fin)
+        # ---------------------------
+
         sql = '''
             UPDATE ALUMNOS SET
                 NOMBRE = ?, APELLIDO = ?, EDAD = ?,
@@ -502,25 +556,67 @@ class ManejadorDB:
             WHERE ID_ALUMNO = ?
         '''
         self.cursor.execute(sql, (
-            datos_actualizados['nombre'],
-            datos_actualizados['apellido'],
-            datos_actualizados['edad'],
-            datos_actualizados['telefono'],
-            datos_actualizados['telefono2'],
-            datos_actualizados['fecha_de_nacimiento'],
-            datos_actualizados['observaciones'],
-            datos_actualizados['estado'],
+            datos_actualizados.get('nombre'),
+            datos_actualizados.get('apellido'),
+            datos_actualizados.get('edad'),
+            datos_actualizados.get('telefono'),
+            datos_actualizados.get('telefono2'),
+            datos_actualizados.get('fecha_de_nacimiento'),
+            datos_actualizados.get('observaciones'),
+            datos_actualizados.get('estado'),
             datos_actualizados.get('nivel'),
-            datos_actualizados['id_clasefk'],
+            # Si es Inactivo forzamos None, si es Activo usamos la clase destino (validada arriba)
+            id_clase_destino if nuevo_estado == 'Activo' else None,
             alumno_id
         ))
-        self.conn.commit()
-
+        self.conn.commit()        
+    
     def actualizar_estado_alumno(self, alumno_id, nuevo_estado):
-        """Actualiza el estado de un alumno específico."""
+        """Actualiza el estado. RESTRICCIÓN: Requiere clase para activar."""
+        
+        # 1. Obtener datos actuales
+        self.cursor.execute('SELECT ESTADO, ID_CLASEFK FROM ALUMNOS WHERE ID_ALUMNO = ?', (alumno_id,))
+        row = self.cursor.fetchone()
+        estado_anterior = row[0] if row else 'Desconocido'
+        id_clase_actual = row[1] if row else None
+        
+        # 2. RESTRICCIÓN DE NEGOCIO (EL CANDADO)
+        if nuevo_estado == 'Activo' and not id_clase_actual:
+            # Lanzamos error para que el Controlador avise al usuario
+            raise ValueError("El alumno no tiene clase asignada. Edite el perfil completo para asignarle una clase antes de activarlo.")
+        
+        if nuevo_estado == 'Activo' and estado_anterior != 'Activo' and id_clase_actual:
+            capacidad = self.obtener_capacidad_clase(id_clase_actual) or 0
+            ocupados = self.contar_alumnos_en_clase(id_clase_actual)
+            if ocupados >= capacidad:
+                raise ValueError(f"No se puede activar: La clase está llena ({ocupados}/{capacidad}).")
+
+        # 3. Verificar cambio
+        if estado_anterior != nuevo_estado:
+            detalles = f"Estado: {estado_anterior} -> {nuevo_estado}."
+            f_ini = None
+            f_fin = None
+            # Cálculo de fechas (Seguro porque ya validamos que hay clase)
+            if estado_anterior == 'Inactivo' and nuevo_estado == 'Activo':
+                    self.cursor.execute('''
+                        SELECT C.DIAS_DE_CLASES, P.NUM_CLASES
+                        FROM CLASES C
+                        JOIN PROGRAMA P ON C.ID_PROGRAMAFK = P.ID_PROGRAMA
+                        WHERE C.ID_CLASE = ?
+                    ''', (id_clase_actual,))
+                    datos_calc = self.cursor.fetchone()
+                    if datos_calc:
+                        f_ini = datetime.now().date().isoformat()
+                        f_fin = self.calcular_fecha_vencimiento(f_ini, datos_calc[1], datos_calc[0])
+                        detalles += " Se generó nuevo periodo."
+                    
+            
+            self.agregar_historial(alumno_id, "Cambio de Estado", detalles, fecha_inicio=f_ini, 
+                fecha_fin=f_fin)
+        
         self.cursor.execute('UPDATE ALUMNOS SET ESTADO = ? WHERE ID_ALUMNO = ?', (nuevo_estado, alumno_id))
         self.conn.commit()
-    
+                
     def obtener_clases_y_descripcion(self):
         self.cursor.execute('SELECT ID_CLASE, DIAS_DE_CLASES || " - " || HORA_INICIO, ID_PROGRAMAFK FROM CLASES')
         return self.cursor.fetchall()
@@ -787,6 +883,86 @@ class ManejadorDB:
             return True
         except Exception as e:
             print(f"Error al asignar instructor a clase: {e}")
+            self.conn.rollback()
+            return False
+    
+    def agregar_clase_extra_individual(self, id_inscripcion, motivo="Reposición"):
+        """
+        Incrementa en 1 las clases restantes para una inscripción específica.
+        Registra la acción en el historial del alumno.
+        """
+        try:
+            # 1. Incrementar clases restantes
+            self.cursor.execute("""
+                UPDATE INSCRIPCIONES
+                SET CLASES_RESTANTES = COALESCE(CLASES_RESTANTES, 0) + 1
+                WHERE ID_INSCRIPCION = ? AND ESTADO = 'Activo'
+            """, (id_inscripcion,))
+
+            # Verificar si se actualizó alguna fila
+            if self.cursor.rowcount == 0:
+                print(f"Advertencia: No se encontró inscripción activa con ID {id_inscripcion} para agregar clase extra.")
+                return False
+
+            # 2. Obtener ID_ALUMNO para el historial
+            self.cursor.execute("SELECT ID_ALUMNO FROM INSCRIPCIONES WHERE ID_INSCRIPCION = ?", (id_inscripcion,))
+            res_alumno = self.cursor.fetchone()
+            if res_alumno:
+                id_alumno = res_alumno[0]
+                # 3. Agregar al historial
+                self.agregar_historial(id_alumno, "Clase Extra Individual", f"Motivo: {motivo}")
+            
+            self.conn.commit()
+            return True
+
+        except Exception as e:
+            print(f"Error al agregar clase extra individual para inscripción {id_inscripcion}: {e}")
+            self.conn.rollback()
+            return False
+
+    def agregar_clase_extra_grupo(self, id_clase, motivo="Clase cancelada por instructor"):
+        """
+        Incrementa en 1 las clases restantes para TODAS las inscripciones activas
+        asociadas a una clase específica. Registra la acción en el historial de cada alumno afectado.
+        """
+        inscripciones_actualizadas = 0
+        try:
+            # 1. Encontrar todas las inscripciones activas para esta clase
+            self.cursor.execute("""
+                SELECT ID_INSCRIPCION, ID_ALUMNO
+                FROM INSCRIPCIONES
+                WHERE ID_CLASE = ? AND ESTADO = 'Activo'
+            """, (id_clase,))
+            inscripciones_activas = self.cursor.fetchall()
+
+            if not inscripciones_activas:
+                print(f"No se encontraron inscripciones activas para la clase ID {id_clase}.")
+                # No es necesariamente un error, puede que no haya alumnos activos
+                return True # Consideramos éxito porque no había nada que hacer
+
+            # 2. Iniciar transacción (implícita, pero confirmaremos al final)
+
+            # 3. Iterar y actualizar cada inscripción + historial
+            for id_inscripcion, id_alumno in inscripciones_activas:
+                self.cursor.execute("""
+                    UPDATE INSCRIPCIONES
+                    SET CLASES_RESTANTES = COALESCE(CLASES_RESTANTES, 0) + 1
+                    WHERE ID_INSCRIPCION = ?
+                """, (id_inscripcion,))
+                
+                # Solo registrar en historial si la actualización tuvo efecto
+                if self.cursor.rowcount > 0:
+                    inscripciones_actualizadas += 1
+                    detalles_historial = f"Clase ID {id_clase}. Motivo: {motivo}"
+                    self.agregar_historial(id_alumno, "Clase Extra Grupo", detalles_historial)
+
+            # 4. Finalizar transacción
+            self.conn.commit()
+            print(f"Clase extra grupal agregada para {inscripciones_actualizadas} inscripciones de la clase ID {id_clase}.")
+            return True
+
+        except Exception as e:
+            print(f"Error al agregar clase extra grupal para clase {id_clase}: {e}")
             self.conn.rollback()
             return False
     

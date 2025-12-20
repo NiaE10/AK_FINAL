@@ -48,13 +48,12 @@ class ConsultaAlumnosVista(QWidget):
         filtro_panel = self._create_filters_panel()
         central_layout.addWidget(filtro_panel)
 
-        self.table = QTableWidget(0, 12, central)
+        self.table = QTableWidget(0, 10, central)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setHorizontalHeaderLabels([
             'ID', 'Nombre', 'Apellido', 'Edad', 'Teléfono', 'Teléfono 2',
             'Fecha de Nacimiento', 'Programa', 'Observaciones', 'Estado',
-            'Inicio Curso', 'Fin Curso'
         ])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -66,8 +65,7 @@ class ConsultaAlumnosVista(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(9, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(10, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(11, QHeaderView.ResizeToContents)
+
 
         
         try:

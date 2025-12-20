@@ -140,7 +140,7 @@ class EditarAlumnoVista(QDialog):
                 (id_cl, desc) for id_cl, desc, id_prog_fk in self.clases if id_prog_fk == id_programa_seleccionado
             ]
         else:
-            clases_filtradas = [(item[0], item[1]) for item in self.clases]
+            clases_filtradas = []
 
         for id_cl, desc in clases_filtradas:
             combo_clases.addItem(desc, id_cl)
