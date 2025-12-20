@@ -966,7 +966,9 @@ class ManejadorDB:
             self.conn.rollback()
             return False
     
-    def obtener_historial_alumno(self, alumno_id):
+    
+    
+    def obtener_historial_alumno(self, alumno_id): 
         
     
         """Obtiene el historial de modificaciones para un alumno específico."""
