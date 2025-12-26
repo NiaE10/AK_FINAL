@@ -24,7 +24,7 @@ class ManejadorDB:
         try:
             self._ensure_inscripciones_table()
             self._ensure_clases_restantes_column()
-            self._ensure_fecha_fin_column()  
+            self._ensure_fecha_fin_column()
         except Exception:
             pass
 
@@ -489,7 +489,7 @@ class ManejadorDB:
             id_clase_actual = row[0]
 
         if datos_actualizados['estado'] == 'Inactivo' and id_clase_actual:
-            datos_actualizados['id_clasefk'] = None
+            datos_actualizados['ID_CLASEFK'] = None
 
         """
         Actualiza los datos de un alumno en la base de datos.
@@ -754,42 +754,27 @@ class ManejadorDB:
             ORDER BY I.CLASES_RESTANTES ASC
         ''', (umbral,))
         return self.cursor.fetchall()
-
-    def calcular_fecha_vencimiento(self, fecha_inicio_str, num_clases, dias_str):
-        """Calcula la fecha de vencimiento (ISO yyyy-mm-dd) de una inscripción."""
-        try:
-            if not fecha_inicio_str:
-                return None
-            
-            fecha_inicio = datetime.fromisoformat(fecha_inicio_str)
-
-            sesiones_por_semana = 1
-            if dias_str:
-                partes = self._split_days(dias_str)
-                sesiones_por_semana = max(1, len(partes))
-
-            if not num_clases or int(num_clases) <= 0:
-                return None
-
-            semanas_de_clases = math.ceil(int(num_clases) / sesiones_por_semana)
-            fecha_de_vencimiento = fecha_inicio + timedelta(weeks=semanas_de_clases)
-            
-            return fecha_de_vencimiento.date().isoformat()
-        except Exception:
-            # Si algo falla, es mejor no tener fecha de fin a tener una incorrecta.
-            return None
     
     def asignar_instructor_a_clase(self, id_clase, id_maestro):
-        """Asigna un ID_MAESTROFK a una clase específica."""
+        """Asigna un ID_MAESTROFK a una clase específica, validando cruces de horario."""
+        # 1. Validación de disponibilidad (Si es para quitar instructor, id_maestro es None y saltamos validación)
+        if id_maestro is not None:
+            hay_conflicto, mensaje = self._verificar_cruce_horarios(id_maestro, id_clase)
+            if hay_conflicto:
+                print(f"No se pudo asignar: {mensaje}")
+                return False, mensaje 
+
         try:
+            # 2. Asignación si no hay conflicto
             self.cursor.execute("UPDATE CLASES SET ID_MAESTROFK = ? WHERE ID_CLASE = ?", (id_maestro, id_clase))
             self.conn.commit()
-            return True
+            return True, "Instructor asignado correctamente."
+
         except Exception as e:
             print(f"Error al asignar instructor a clase: {e}")
             self.conn.rollback()
-            return False
-    
+            return False, f"Error de base de datos: {e}"
+        
     def obtener_historial_alumno(self, alumno_id):
         
     
@@ -801,3 +786,69 @@ class ManejadorDB:
             ORDER BY FECHA DESC
         ''', (alumno_id,))
         return self.cursor.fetchall()
+    
+    def _verificar_cruce_horarios(self, id_maestro, id_clase_nueva):
+        """
+        Verifica si el maestro ya tiene una clase que se solape en día y hora
+        con la clase indicada (id_clase_nueva).
+        Retorna: (Bool, Mensaje) -> (True si hay conflicto, Mensaje de error)
+        """
+        try:
+            # 1. Obtener datos de la clase que queremos asignar (TARGET)
+            self.cursor.execute("SELECT HORA_INICIO, HORA_FIN, DIAS_DE_CLASES FROM CLASES WHERE ID_CLASE = ?", (id_clase_nueva,))
+            clase_nueva = self.cursor.fetchone()
+            if not clase_nueva:
+                return True, "La clase a asignar no existe."
+
+            nueva_inicio_str, nueva_fin_str, nueva_dias_str = clase_nueva
+            
+            # Convertir horas a objetos datetime para comparar
+            fmt = '%H:%M'
+            try:
+                # Ajusta el formato si tus horas en la BD tienen segundos o espacios
+                nueva_inicio = datetime.strptime(nueva_inicio_str.strip(), fmt)
+                nueva_fin = datetime.strptime(nueva_fin_str.strip(), fmt)
+            except ValueError:
+                # Intento de fallback si el formato es distinto
+                return False, "" # Si no se puede parsear, saltamos validación (riesgoso pero evita crash)
+
+            conjunto_dias_nuevos = set(self._split_days(nueva_dias_str))
+
+            # 2. Obtener todas las clases que YA tiene el maestro (excepto la misma clase si ya la tuviera)
+            # Solo nos importan las clases donde él es el maestro activo
+            self.cursor.execute("""
+                SELECT C.ID_CLASE, C.HORA_INICIO, C.HORA_FIN, C.DIAS_DE_CLASES, P.NOMBRE_PROGRAMA
+                FROM CLASES C
+                LEFT JOIN PROGRAMA P ON C.ID_PROGRAMAFK = P.ID_PROGRAMA
+                WHERE C.ID_MAESTROFK = ? AND C.ID_CLASE != ?
+            """, (id_maestro, id_clase_nueva))
+            
+            clases_existentes = self.cursor.fetchall()
+
+            # 3. Comparar
+            for id_existente, inicio_str, fin_str, dias_str, nombre_prog in clases_existentes:
+                # A. Verificar intersección de días
+                conjunto_dias_existentes = set(self._split_days(dias_str))
+                
+                # Si NO tienen días en común, no hay problema
+                if not conjunto_dias_nuevos.intersection(conjunto_dias_existentes):
+                    continue 
+
+                # B. Verificar intersección de horas (Solo si los días coinciden)
+                try:
+                    existente_inicio = datetime.strptime(inicio_str.strip(), fmt)
+                    existente_fin = datetime.strptime(fin_str.strip(), fmt)
+                except ValueError:
+                    continue
+
+                # Lógica de solapamiento: (InicioA < FinB) y (InicioB < FinA)
+                if (nueva_inicio < existente_fin) and (existente_inicio < nueva_fin):
+                    dias_comunes = ", ".join(conjunto_dias_nuevos.intersection(conjunto_dias_existentes))
+                    return True, f"Error, el intructor se encuentra asignado en otro programa: '{nombre_prog}' los {dias_comunes} de {inicio_str} a {fin_str}."
+
+            return False, "Horario disponible."
+
+        except Exception as e:
+            print(f"Error validando cruce de horarios: {e}")
+            # En caso de error técnico, mejor bloquear para prevenir corrupción o permitir con advertencia
+            return True, f"Error técnico al validar horario: {e}"

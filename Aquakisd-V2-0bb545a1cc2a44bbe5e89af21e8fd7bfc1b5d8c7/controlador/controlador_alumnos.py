@@ -152,4 +152,4 @@ class ControladorAlumnos(QObject):
                 WHERE ID_ALUMNO = ? 
                 ORDER BY FECHA DESC
             ''', (alumno_id,))
-            return self.cursor.fetchall()     
+            return self.cursor.fetchall()    
