@@ -122,6 +122,11 @@ class ConsultaAlumnosVista(QWidget):
         self.btn_editar_alumno = QPushButton("Editar Alumno")
         self.btn_editar_alumno.setObjectName("btn_editar_alumno")
         form_layout.addRow(self.btn_editar_alumno)
+        
+        self.btn_clase_extra = QPushButton("Clase Extra (+1)")
+        self.btn_clase_extra.setStyleSheet("background-color: white; color: black; border: 1px solid gray; padding: 5px; border-radius: 3px;")
+        form_layout.addRow(self.btn_clase_extra)
+        self.btn_clase_extra.clicked.connect(self._on_clic_clase_extra)
 
         panel.setLayout(form_layout)
 
@@ -135,6 +140,15 @@ class ConsultaAlumnosVista(QWidget):
         self.btn_editar_alumno.clicked.connect(self.on_clic_editar_alumno)
 
         return panel
+    
+    def _on_clic_clase_extra(self):
+        row = self.table.currentRow()
+        if row >= 0:
+            id_alumno = self.table.item(row, 0).text() # Obtenemos ID como texto
+            if self.controlador:
+                self.controlador.otorgar_clase_extra(id_alumno)
+        else:
+            QMessageBox.information(self, "Aviso", "Selecciona un alumno primero.")
 
     def on_clic_editar_alumno(self):
         selected_row = self.table.currentRow()

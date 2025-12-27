@@ -226,4 +226,34 @@ class ControladorAlumnos(QObject):
                     self.alumno_actualizado.emit()
 
             except Exception as e:
-                QMessageBox.critical(self.vista, "Error Crítico", f"Ocurrió un error durante el proceso grupal: {e}")   
+                QMessageBox.critical(self.vista, "Error Crítico", f"Ocurrió un error durante el proceso grupal: {e}")  
+                
+    def otorgar_clase_extra(self, alumno_id):
+        """ Otorga una clase extra a la inscripción activa de un alumno. """
+        try:
+            # Buscar inscripción activa
+            self.modelo.cursor.execute("""
+                SELECT ID_INSCRIPCION FROM INSCRIPCIONES
+                WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
+                ORDER BY FECHA_INICIO DESC LIMIT 1
+            """, (alumno_id,))
+            resultado = self.modelo.cursor.fetchone()
+
+            if not resultado:
+                QMessageBox.warning(self.vista, "Sin Inscripción", "El alumno no tiene inscripción activa.")
+                return
+
+            id_inscripcion = resultado[0]
+            
+            reply = QMessageBox.question(self.vista, 'Confirmar', 
+                                         '¿Agregar +1 clase a este alumno por reposición?',
+                                         QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                if self.modelo.agregar_clase_extra_individual(id_inscripcion):
+                    QMessageBox.information(self.vista, "Éxito", "Clase extra agregada.")
+                    self.cargar_alumnos() 
+                else:
+                    QMessageBox.warning(self.vista, "Error", "No se pudo agregar la clase.")
+
+        except Exception as e:
+            QMessageBox.critical(self.vista, "Error", f"Error: {e}") 

@@ -3,11 +3,12 @@
 import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QInputDialog, QMessageBox, QLineEdit
+    QTableWidgetItem, QHeaderView, QInputDialog, QMessageBox, QLineEdit,
+    QAbstractItemView, QMenu
 )
 from PySide6.QtCore import Signal, Qt
 from modelo.manejador_db import ManejadorDB
-
+from PySide6.QtGui import QAction
 
 class ProgramasVista(QWidget):
     programa_seleccionado = Signal(int)
@@ -67,6 +68,11 @@ class ProgramasVista(QWidget):
         self.tabla_clases.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tabla_clases.setSelectionBehavior(QTableWidget.SelectRows)
         self.tabla_clases.setAlternatingRowColors(True)
+        # Permitir seleccionar múltiples filas (Shift/Ctrl + Clic)
+        self.tabla_clases.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        # Habilitar menú contextual (Clic derecho)
+        self.tabla_clases.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tabla_clases.customContextMenuRequested.connect(self._mostrar_menu_clase)
         self.tabla_clases.cellDoubleClicked.connect(self._on_instructor_cell_double_clicked)
         center_layout.addWidget(self.tabla_clases)
 
@@ -219,3 +225,48 @@ class ProgramasVista(QWidget):
                         QMessageBox.warning(self, "Error", "No se pudo asignar el instructor en la base de datos.")
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Error al intentar asignar instructor: {e}")
+                    
+    def _mostrar_menu_clase(self, position):
+        """Muestra menú contextual para reponer una o varias clases seleccionadas."""
+        # Obtener índices de filas seleccionadas únicas
+        filas_seleccionadas = sorted(set(idx.row() for idx in self.tabla_clases.selectedIndexes()))
+        
+        if not filas_seleccionadas:
+            return
+
+        # Recuperar los IDs de las clases de esas filas
+        ids_clases = []
+        for row in filas_seleccionadas:
+            item_horario = self.tabla_clases.item(row, 0)
+            if item_horario:
+                ids_clases.append(item_horario.data(Qt.UserRole))
+        
+        if not ids_clases:
+            return
+
+        cantidad = len(ids_clases)
+        texto_menu = f"Reponer Clases (+1) a {cantidad} grupos seleccionados"
+
+        menu = QMenu()
+        action_reponer = QAction(texto_menu, self)
+        menu.addAction(action_reponer)
+
+        action = menu.exec(self.tabla_clases.viewport().mapToGlobal(position))
+
+        if action == action_reponer:
+            reply = QMessageBox.question(
+                self, "Confirmar Reposición Masiva",
+                f"¿Estás seguro de reponer la clase a los {cantidad} grupos seleccionados?\n\n"
+                "Se sumará +1 clase a TODOS los alumnos activos inscritos en estos horarios.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                exitos = 0
+                for id_clase in ids_clases:
+                    if self.modelo.agregar_clase_extra_grupo(id_clase, "Falta Instructor (Reposición Masiva)"):
+                        exitos += 1
+                
+                QMessageBox.information(self, "Proceso Terminado", f"Se procesaron correctamente {exitos} de {cantidad} clases.")
+                # Opcional: Recargar la vista si quisieras ver cambios inmediatos en cupos (aunque aquí solo cambiamos clases restantes)
+                # self.actualizar_vista_actual()

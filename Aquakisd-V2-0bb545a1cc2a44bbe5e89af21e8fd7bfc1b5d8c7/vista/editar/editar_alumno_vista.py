@@ -26,6 +26,7 @@ class EditarAlumnoVista(QDialog):
             'fecha_de_nacimiento': ('Fecha de Nacimiento:', self._create_date_edit()),
             'observaciones': ('Observaciones:', QLineEdit(self.datos_alumno.get('OBSERVACIONES', ''))),
             'estado': ('Estado:', self._create_estado_combo()),
+            'fecha_inicio_actividad': ('Fecha Inicio (Si activa):', self._create_date_edit_inicio()),
             'id_programafk': ('Programa:', self._create_programas_combo(programas)),
             'id_clasefk': ('Clase:', QComboBox()),
             'nivel': ('Nivel:', self._create_nivel_combo())
@@ -35,7 +36,11 @@ class EditarAlumnoVista(QDialog):
             self.campos[key] = widget
             self.layout.addRow(QLabel(label), self.campos[key])
 
-        # Initialize class and program lists
+        # Conectar el cambio de estado con la función de ocultar/mostrar
+        self.campos['estado'].currentTextChanged.connect(self._on_estado_changed)
+        
+        # Ejecutar una vez al inicio para establecer el estado correcto (oculto/visible)
+        self._on_estado_changed(self.campos['estado'].currentText())        # Initialize class and program lists
         self.programas = programas or []
         self.clases = self._normalize_clases(clases)
 
@@ -166,6 +171,39 @@ class EditarAlumnoVista(QDialog):
             'fecha_de_nacimiento': qdate.toString('yyyy-MM-dd'),
             'observaciones': self.campos['observaciones'].text(),
             'estado': self.campos['estado'].currentText(),
+            'fecha_inicio_actividad': self.campos['fecha_inicio_actividad'].date().toString('yyyy-MM-dd'),
             'id_clasefk': self.campos['id_clasefk'].currentData(),
             'nivel': self.campos['nivel'].currentData(),
         }
+
+    def _create_date_edit_inicio(self):
+        """Crea un selector de fecha por defecto con el día de hoy para el inicio de actividades."""
+        date_edit = QDateEdit()
+        date_edit.setDate(QDate.currentDate())
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("dd/MM/yyyy")
+        
+        # Estilo consistente con el resto de la app
+        dropdown_style = """
+            QAbstractItemView {
+                background-color: white;
+                color: black;
+                selection-background-color: #4095b9;
+                selection-color: white;
+            }
+        """
+        calendar = date_edit.calendarWidget()
+        if calendar:
+            combo_boxes = calendar.findChildren(QComboBox)
+            for combo in combo_boxes:
+                combo.view().setStyleSheet(dropdown_style)
+        return date_edit
+    
+    def _on_estado_changed(self, texto_estado):
+        """Muestra u oculta el campo de fecha según el estado seleccionado."""
+        es_activo = (texto_estado == "Activo")
+        widget_fecha = self.campos.get('fecha_inicio_actividad')
+        
+        if widget_fecha:
+            # setRowVisible oculta tanto la etiqueta como el campo en un FormLayout
+            self.layout.setRowVisible(widget_fecha, es_activo)
