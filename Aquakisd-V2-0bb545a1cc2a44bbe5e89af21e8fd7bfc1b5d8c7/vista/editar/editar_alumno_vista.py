@@ -1,7 +1,7 @@
 # vista/editar/editar_alumno_vista.py
 
 import os
-from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QPushButton, QComboBox, QDateEdit, QLabel, QHBoxLayout
+from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QPushButton, QComboBox, QDateEdit, QLabel, QHBoxLayout, QMessageBox
 from PySide6.QtCore import QDate
 
 
@@ -26,7 +26,7 @@ class EditarAlumnoVista(QDialog):
             'fecha_de_nacimiento': ('Fecha de Nacimiento:', self._create_date_edit()),
             'observaciones': ('Observaciones:', QLineEdit(self.datos_alumno.get('OBSERVACIONES', ''))),
             'estado': ('Estado:', self._create_estado_combo()),
-            'fecha_inicio_actividad': ('Fecha Inicio (Si activa):', self._create_date_edit_inicio()),
+            'fecha_inicio_actividad': ('Fecha Inicio:', self._create_date_edit_inicio()),
             'id_programafk': ('Programa:', self._create_programas_combo(programas)),
             'id_clasefk': ('Clase:', QComboBox()),
             'nivel': ('Nivel:', self._create_nivel_combo())
@@ -53,7 +53,7 @@ class EditarAlumnoVista(QDialog):
         # Save button
         self.btn_guardar = QPushButton("Guardar Cambios")
         self.btn_guardar.setObjectName("btn_guardar")
-        self.btn_guardar.clicked.connect(self.accept)
+        self.btn_guardar.clicked.connect(self._validar_y_guardar)
         self.layout.addRow("", self.btn_guardar)
         self.btn_historial = QPushButton("Ver Historial")
         self.btn_historial.setObjectName("btn_historial")
@@ -62,6 +62,7 @@ class EditarAlumnoVista(QDialog):
         button_layout.addWidget(self.btn_guardar)
         button_layout.addWidget(self.btn_historial)
         self.layout.addRow("", button_layout)
+        
     def _create_date_edit(self):
         date_edit = QDateEdit()
         fecha_str = self.datos_alumno.get('FECHA_DE_NACIMIENTO', '') or ''
@@ -207,3 +208,28 @@ class EditarAlumnoVista(QDialog):
         if widget_fecha:
             # setRowVisible oculta tanto la etiqueta como el campo en un FormLayout
             self.layout.setRowVisible(widget_fecha, es_activo)
+
+    def _validar_y_guardar(self):
+        """Valida Nivel y Clase antes de cerrar la ventana."""
+        
+        # 1. Validar Nivel (Obligatorio siempre)
+        nivel = self.campos['nivel'].currentData()
+        if nivel is None:
+            QMessageBox.warning(self, "Falta Información", "Por favor, selecciona un Nivel para el alumno.")
+            return  # NO cerramos la ventana
+        
+        # 2. Validar Clase (Obligatorio SOLO si el estado es 'Activo')
+        estado = self.campos['estado'].currentText()
+        id_clase = self.campos['id_clasefk'].currentData()
+        
+        if estado == 'Activo' and id_clase is None:
+            QMessageBox.warning(
+                self, 
+                "Falta Información", 
+                "Un alumno 'Activo' debe tener un horario asignado.\n\n"
+                "Por favor, selecciona un Programa y una Clase."
+            )
+            return  # NO cerramos la ventana
+
+        # Si pasó todas las validaciones, ahora sí aceptamos y cerramos
+        self.accept()

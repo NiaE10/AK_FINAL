@@ -1,6 +1,7 @@
 import sys
 import os
 import inspect
+import re
 
 DB_FILE = 'aquakids.db'
 if not os.path.exists(DB_FILE):
@@ -33,6 +34,7 @@ from controlador.controlador_solicitudes import ControladorSolicitudes
 from controlador.controlador_inicio import ControladorInicio
 from modelo.manejador_db import ManejadorDB
 from vista.programas.programas_vista import ProgramasVista
+import stress_BD
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()

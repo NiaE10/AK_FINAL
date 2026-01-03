@@ -12,8 +12,6 @@ class ConsultaAlumnosVista(QWidget):
         ("Todos", None),
         ("Activo", "Activo"),
         ("Inactivo", "Inactivo"),
-        ("Lista De Espera", "Lista De Espera"),
-        ("Prioridad", "Prioridad"),
     ]
 
     estado_alumno_actualizado = Signal(int, str)
@@ -258,6 +256,7 @@ class ConsultaAlumnosVista(QWidget):
 
     @Slot(QTableWidgetItem)
     def on_item_changed(self, item: QTableWidgetItem):
+
         if item.column() in self.columnas_editables:
             row = item.row()
             col = item.column()
@@ -277,3 +276,7 @@ class ConsultaAlumnosVista(QWidget):
 
             except (ValueError, TypeError) as e:
                 print(f"Error processing item change: {e}")
+                
+    def refrescar_tabla(self):
+        """Método público para re-aplicar los filtros actuales y actualizar la tabla."""
+        self._on_apply_filters()

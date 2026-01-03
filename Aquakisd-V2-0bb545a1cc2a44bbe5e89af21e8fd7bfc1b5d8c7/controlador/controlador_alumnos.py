@@ -32,7 +32,6 @@ class ControladorAlumnos(QObject):
     
     def set_vista(self, vista):
         self.vista = vista
-    
 
     def mostrar_historial_alumno(self, alumno_id):
         try:
@@ -138,7 +137,7 @@ class ControladorAlumnos(QObject):
             # 6. Actualizar el modelo y la vista principal
             try:
                 self.modelo.actualizar_alumno(alumno_id, datos_actualizados)
-                self.cargar_alumnos()
+                self.vista.refrescar_tabla()
                 QMessageBox.information(self.vista, "Éxito", "Alumno actualizado correctamente.")
                 self.alumno_actualizado.emit()
             except Exception as e:
@@ -153,40 +152,6 @@ class ControladorAlumnos(QObject):
                 ORDER BY FECHA DESC
             ''', (alumno_id,))
             return self.cursor.fetchall()  
-        
-    def otorgar_clase_extra(self, alumno_id):
-        """ Otorga una clase extra a la inscripción activa de un alumno. """
-        try:
-            # Buscar la inscripción activa del alumno
-            self.modelo.cursor.execute("""
-                SELECT ID_INSCRIPCIÓN FROM INSCRIPCIONES
-                WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
-                ORDER BY FECHA_INICIO DESC
-                LIMIT 1
-            """, (alumno_id,))
-            resultado = self.modelo.cursor.fetchone()
-
-            if not resultado:
-                QMessageBox.warning(self.vista, "Sin Inscripción Activa",
-                                    "No se encontró una inscripción activa para este alumno.")
-                return
-
-            id_inscripcion_activa = resultado[0]
-
-            # Confirmar acción
-            reply = QMessageBox.question(self.vista, 'Confirmar Clase Extra',
-                                         f'¿Está seguro de que desea agregar +1 clase restante a la inscripción actual del alumno ID {alumno_id}?',
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-
-            if reply == QMessageBox.Yes:
-                if self.modelo.agregar_clase_extra_individual(id_inscripcion_activa):
-                    QMessageBox.information(self.vista, "Éxito", "Clase extra agregada correctamente.")
-                    self.alumno_actualizado.emit() # Emitir señal para refrescar vistas
-                else:
-                    QMessageBox.critical(self.vista, "Error", "No se pudo agregar la clase extra en la base de datos.")
-
-        except Exception as e:
-            QMessageBox.critical(self.vista, "Error", f"Ocurrió un error al otorgar la clase extra: {e}")
 
     def otorgar_clase_extra_grupo_multiple(self, lista_ids_clase, motivo="Clase cancelada por instructor"):
         """ Otorga una clase extra a todos los alumnos activos de las clases seleccionadas. """
@@ -251,7 +216,7 @@ class ControladorAlumnos(QObject):
             if reply == QMessageBox.Yes:
                 if self.modelo.agregar_clase_extra_individual(id_inscripcion):
                     QMessageBox.information(self.vista, "Éxito", "Clase extra agregada.")
-                    self.cargar_alumnos() 
+                    self.vista.refrescar_tabla()
                 else:
                     QMessageBox.warning(self.vista, "Error", "No se pudo agregar la clase.")
 

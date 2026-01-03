@@ -66,7 +66,7 @@ class RegistrarNinoVista(QWidget):
         self.dias_combo = QComboBox()
         self.horario_combo = QComboBox()
         self.nivel_combo = QComboBox()
-        self.nivel_combo.addItems(["Principiante 1", "Principiante 2", "Intermedio", "Avanzado", "Sin nivel"])
+        self.nivel_combo.addItems(["-- Seleccione Nivel --", "Principiante 1", "Principiante 2", "Intermedio", "Avanzado", "Sin nivel"])
         self.fecha_inicio = QDateEdit(calendarPopup=True)
         estado_widget = self._create_estado_widget()
         col_2_layout.addRow("Programa:", self.programa_combo)

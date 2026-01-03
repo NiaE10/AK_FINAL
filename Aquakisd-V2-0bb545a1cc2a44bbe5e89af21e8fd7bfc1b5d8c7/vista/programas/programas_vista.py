@@ -125,7 +125,7 @@ class ProgramasVista(QWidget):
                 if isinstance(cupo_disp, int) and cupo_disp < 0:
                     cupo_disp = 0
 
-                alumnos_data = self.modelo.buscar_alumnos(id_clase=id_clase, estado='Activo')
+                alumnos_data = self.modelo.buscar_alumnos(id_clase=id_clase, estado=('Activo', 'Baja Pendiente'))
                 nombres_alumnos = [f"{a[1]} {a[2]}".strip() for a in alumnos_data]
                 
                 clases.append({
@@ -215,14 +215,16 @@ class ProgramasVista(QWidget):
 
                 # 5. Llamar al modelo para actualizar la base de datos
                 try:
-                    if self.modelo.asignar_instructor_a_clase(id_clase, id_maestro_seleccionado):
-                        # 6. Actualizar la celda en la tabla
-                        nuevo_texto = nombre_seleccionado if id_maestro_seleccionado is not None else "No Asignado"
-                        self.tabla_clases.item(row, INSTRUCTOR_COLUMN).setText(nuevo_texto)
-                        # Opcional: Refrescar toda la vista por si acaso
-                        # self.actualizar_vista_actual()
+                    # CORRECCIÓN 1: Usar la variable correcta 'id_maestro_seleccionado'
+                    exito, mensaje = self.modelo.asignar_instructor_a_clase(id_clase, id_maestro_seleccionado)
+                    
+                    if exito:
+                        # CORRECCIÓN 2: Limpiar la línea del mensaje de éxito y recargar la tabla
+                        QMessageBox.information(self, "Éxito", mensaje)
+                        self.actualizar_vista_actual() # Recargar la tabla para ver el cambio
                     else:
-                        QMessageBox.warning(self, "Error", "No se pudo asignar el instructor en la base de datos.")
+                        QMessageBox.warning(self, "Cruce de Horarios", mensaje)
+                        
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Error al intentar asignar instructor: {e}")
                     

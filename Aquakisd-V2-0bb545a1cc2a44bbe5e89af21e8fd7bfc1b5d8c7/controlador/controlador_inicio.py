@@ -104,7 +104,18 @@ class ControladorInicio(QObject):
             try:
                 success = self.modelo.baja_alumno(alumno_id)
                 if success:
-                    QMessageBox.information(self.vista, "Baja de Alumno", "Alumno dado de baja correctamente.")
+                    # --- VERIFICACIÓN DE RESULTADO (Feedback Inteligente) ---
+                    # Consultamos cómo quedó el alumno realmente en la BD
+                    datos_alumno = self.modelo.obtener_alumno_por_id(alumno_id)
+                    nuevo_estado = datos_alumno.get('ESTADO') if datos_alumno else 'Inactivo'
+
+                    if nuevo_estado == 'Baja Pendiente':
+                        QMessageBox.information(self.vista, "Baja Pendiente", 
+                                                "El alumno aún tiene clases pagadas. Se ha marcado como 'Baja Pendiente' y se dará de baja definitiva automáticamente al terminar su saldo.")
+                    else:
+                        QMessageBox.information(self.vista, "Baja de Alumno", 
+                                                "Alumno dado de baja correctamente (Sin clases pendientes).")
+                    
                     self.cargar_alertas()
                     self.alumno_dado_de_baja.emit()
                 else:

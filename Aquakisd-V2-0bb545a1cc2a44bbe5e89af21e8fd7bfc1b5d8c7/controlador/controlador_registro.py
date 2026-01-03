@@ -2,6 +2,8 @@
 from modelo.manejador_db import ManejadorDB
 from PySide6.QtWidgets import QMessageBox
 from PySide6.QtCore import Signal, QObject
+from datetime import datetime
+import re
 class ControladorRegistro(QObject):
     alumno_registrado = Signal() # <-- Declarar la señal aquí
 
@@ -41,6 +43,11 @@ class ControladorRegistro(QObject):
     def registrar_alumno(self):
         # --- 1. OBTENER DATOS Y VALIDACIONES INICIALES ---
         datos = self.vista.obtener_datos_formulario()
+        
+        if datos['nivel'] == "-- Seleccione Nivel --":
+            self.vista.mostrar_mensaje("Error: Debes seleccionar un Nivel para el alumno.")
+            return
+        
         if not datos['nombre'] or not datos['apellido']:
             self.vista.mostrar_mensaje("Nombre y apellido son obligatorios.")
             return
@@ -48,6 +55,35 @@ class ControladorRegistro(QObject):
         id_clase = self.vista.horario_combo.currentData()
         if id_clase is None:
             self.vista.mostrar_mensaje("Debe seleccionar un horario/clase.")
+            return
+        try:
+            fecha_nac = datetime.strptime(datos['fecha_nacimiento'], '%Y-%m-%d').date()
+            if fecha_nac > datetime.now().date():
+                self.vista.mostrar_mensaje("Error: La fecha de nacimiento no puede ser una fecha futura.")
+                return
+        except ValueError:
+            self.vista.mostrar_mensaje("Error: Formato de fecha inválido.")
+            return
+        if len(datos['nombre']) > 50 or len(datos['apellido']) > 50:
+            self.vista.mostrar_mensaje("Error: El nombre o apellido exceden el límite permitido (50 caracteres).")
+            return
+        
+        patron_nombre = r"^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s\-\']+$"
+        
+        if not re.match(patron_nombre, datos['nombre']) or not re.match(patron_nombre, datos['apellido']):
+            self.vista.mostrar_mensaje("Error: Nombre o Apellido contienen caracteres inválidos (solo letras, guiones y apóstrofes).")
+            return
+        
+        patron_tel = r"^[\d\s\-\(\)]+$"
+        
+        # Validamos Teléfono 1 (Si tiene datos, debe cumplir el patrón)
+        if datos['telefono'] and not re.match(patron_tel, datos['telefono']):
+            self.vista.mostrar_mensaje("Error: El teléfono principal contiene caracteres inválidos (use solo números).")
+            return
+
+        # Validamos Teléfono 2 (Solo si escribieron algo)
+        if datos['telefono2'] and not re.match(patron_tel, datos['telefono2']):
+            self.vista.mostrar_mensaje("Error: El teléfono secundario contiene caracteres inválidos.")
             return
 
         # --- 2. VALIDACIÓN DE EDAD ---
@@ -84,9 +120,10 @@ class ControladorRegistro(QObject):
             self.vista.mostrar_mensaje(f"No se pudo verificar la capacidad: {e}")
             return
 
-        # --- 4. SI TODAS LAS VALIDACIONES PASAN, INSERTAR ALUMNO E INSCRIPCIÓN ---
+        # --- 4. TRANSACCIÓN CONTROLADA SEGÚN ESTADO ---
+        id_alumno_nuevo = None
         try:
-            # Insertar al alumno
+            # A. Insertar al alumno (Se guarda sea Activo, Lista de Espera, etc.)
             id_alumno_nuevo = self.modelo.insertar_alumno(
                 nombre=datos['nombre'],
                 apellido=datos['apellido'],
@@ -100,28 +137,43 @@ class ControladorRegistro(QObject):
                 id_clase=id_clase
             )
 
-            # Crear su inscripción
-            if id_alumno_nuevo:
-                fecha_inicio = self.vista.fecha_inicio.date().toString('yyyy-MM-dd')
-                self.modelo.crear_inscripcion(
-                    id_alumno_nuevo,
-                    id_programa,
-                    id_clase,
-                    fecha_inicio
-                )
-                
-                # Si se inscribe en un programa especial, ajustar capacidad (opcional)
-                if plazas_necesarias > 1:
-                    self.modelo.restar_capacidad_clase(id_clase, plazas_necesarias)
+            if not id_alumno_nuevo:
+                raise Exception("La base de datos no devolvió el ID del nuevo alumno.")
 
-                self.vista.mostrar_mensaje("Alumno registrado e inscrito correctamente.")
-                self.vista.limpiar_formulario()
-                self.alumno_registrado.emit()
-            else:
-                self.vista.mostrar_mensaje("Hubo un error al registrar al alumno.")
+            # B. Lógica de Inscripción (SOLO SI ES ACTIVO)
+            if datos['estado'] == 'Activo':
+                fecha_inicio = self.vista.fecha_inicio.date().toString('yyyy-MM-dd')
+                
+                try:
+                    # Intentamos crear el contrato
+                    self.modelo.crear_inscripcion(
+                        id_alumno_nuevo,
+                        id_programa,
+                        id_clase,
+                        fecha_inicio
+                    )
+                    
+                    # Si es Activo y tiene programa especial, restamos cupo
+                    if plazas_necesarias > 1:
+                        self.modelo.restar_capacidad_clase(id_clase, plazas_necesarias)
+                        
+                except Exception as e_inscripcion:
+                    # --- ROLLBACK SOLO PARA ACTIVOS ---
+                    # Si un alumno DEBE ser activo pero falla su contrato, es un registro inválido.
+                    print(f"[ERROR CRÍTICO] Falló inscripción de alumno Activo. Revirtiendo...")
+                    self.modelo.cursor.execute("DELETE FROM ALUMNOS WHERE ID_ALUMNO = ?", (id_alumno_nuevo,))
+                    self.modelo.conn.commit()
+                    raise Exception(f"No se pudo formalizar la inscripción. El registro ha sido cancelado.\nDetalle: {e_inscripcion}")
+
+            # C. Si es Lista de Espera o Prioridad, simplemente pasamos por aquí sin crear inscripción
+            # y sin hacer rollback. El alumno queda guardado correctamente sin contrato.
+
+            self.vista.mostrar_mensaje(f"Alumno registrado correctamente con estado: {datos['estado']}.")
+            self.vista.limpiar_formulario()
+            self.alumno_registrado.emit()
 
         except Exception as e:
-            self.vista.mostrar_mensaje(f"Error al guardar en la base de datos: {e}")
+            self.vista.mostrar_mensaje(f"Error en el proceso de registro: {e}")
 
     def _programa_cambiado(self, index):
         # Obtener id_programa y poblar dias_combo con los días disponibles para ese programa
