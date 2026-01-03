@@ -2,7 +2,59 @@ import sys
 import os
 import inspect
 import re
+from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QStackedWidget, QLabel
 
+def cargar_estilos_globales(app):
+    """
+    Carga y combina 'tema_global.qss' y 'solicitudes_style.qss'.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 1. Definir rutas explícitas
+    estilo_global_path = os.path.join(base_dir, 'vista', 'estilos', 'tema_global.qss')
+    estilo_solicitudes_path = os.path.join(base_dir, 'vista', 'solicitudes', 'solicitudes_style.qss')
+    
+    estilos_combinados = ""
+
+    # 2. Leer Estilo Global
+    if os.path.exists(estilo_global_path):
+        try:
+            with open(estilo_global_path, "r", encoding="utf-8") as f:
+                estilos_combinados += f.read()
+            print(f"✅ [OK] Tema global cargado: {estilo_global_path}")
+        except Exception as e:
+            print(f"❌ [ERROR] Falló carga de tema global: {e}")
+    else:
+        print(f"⚠️ [AVISO] No existe el archivo global en: {estilo_global_path}")
+
+    # 3. Leer Estilo Solicitudes (Concatenar)
+    if os.path.exists(estilo_solicitudes_path):
+        try:
+            with open(estilo_solicitudes_path, "r", encoding="utf-8") as f:
+                # Se añade un salto de línea para separar del anterior
+                estilos_combinados += "\n" + f.read()
+            print(f"✅ [OK] Estilos de solicitudes inyectados: {estilo_solicitudes_path}")
+        except Exception as e:
+            print(f"❌ [ERROR] Falló carga de estilos solicitudes: {e}")
+    else:
+        print(f"⚠️ [AVISO] No existe el archivo de solicitudes en: {estilo_solicitudes_path}")
+    
+    # 4. Aplicar a la aplicación
+    if estilos_combinados:
+        app.setStyleSheet(estilos_combinados)
+        print("🎨 Estilos aplicados a la aplicación.")
+    else:
+        print("⚠️ ADVERTENCIA: No se aplicó ningún estilo (cadena vacía).")
+        # Fallback opcional al antiguo estilos.qss si existe
+        old_path = os.path.join(base_dir, 'estilos.qss')
+        if os.path.exists(old_path):
+             print("Cargando estilo de respaldo antiguo...")
+             with open(old_path, "r", encoding="utf-8") as f:
+                app.setStyleSheet(f.read())
+                
 DB_FILE = 'aquakids.db'
 if not os.path.exists(DB_FILE):
     print(f"Base de datos no encontrada. Creando y poblando {DB_FILE}...")
@@ -11,16 +63,8 @@ if not os.path.exists(DB_FILE):
     rellenar_todos_los_datos()
     print("Base de datos creada y poblada.")
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QStackedWidget, QLabel
 
 app = QApplication.instance() or QApplication(sys.argv)
-
-try:
-    qss_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'estilos.qss')
-    with open(qss_path, "r", encoding="utf-8") as f:
-        app.setStyleSheet(f.read())
-except FileNotFoundError:
-    print("ADVERTENCIA: No se encontró el archivo de estilos global 'estilos.qss'")
 
 from vista.registrar_ninos.registrar_nino_vista import RegistrarNinoVista
 from vista.registrar_maestro.registrar_maestro_vista import RegistrarMaestroVista
@@ -34,11 +78,19 @@ from controlador.controlador_solicitudes import ControladorSolicitudes
 from controlador.controlador_inicio import ControladorInicio
 from modelo.manejador_db import ManejadorDB
 from vista.programas.programas_vista import ProgramasVista
-import stress_BD
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AquaKids")
+        cargar_estilos_globales(app)
+        # --- CÓDIGO NUEVO PARA EL ICONO (ARRIBA A LA IZQUIERDA) ---
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        ruta_icono = os.path.join(base_dir, 'recursos', 'logo.png') # Asegúrate que sea el nombre exacto de tu imagen
+        
+        if os.path.exists(ruta_icono):
+            # Esto pone el logo en la barra de título y en la barra de tareas
+            self.setWindowIcon(QIcon(ruta_icono))
+        
         self.modelo = ManejadorDB()
 
         container = QWidget()
@@ -52,9 +104,51 @@ class MainWindow(QMainWindow):
         nav_layout.setContentsMargins(12, 6, 12, 6)
         nav_layout.setSpacing(8)
 
-        logo = QLabel('AquaKids')
-        logo.setObjectName('logo')
-        nav_layout.addWidget(logo)
+        # --- BLOQUE LOGO + TÍTULO (MEJORADO) ---
+        
+        # 1. Contenedor para Logo y Texto (para mantenerlos juntos a la izquierda)
+        brand_widget = QWidget()
+        brand_layout = QHBoxLayout(brand_widget)
+        brand_layout.setContentsMargins(0, 0, 0, 0)
+        brand_layout.setSpacing(10) # Espacio entre el icono y el texto
+
+        # 2. El Logo (Imagen)
+        logo_label = QLabel()
+        logo_label.setObjectName('logo_img')
+        
+        # Ruta al archivo (Asegúrate de usar el que es SIN FONDO)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        ruta_logo = os.path.join(base_dir, 'recursos', 'logo.png') 
+        
+        if os.path.exists(ruta_logo):
+            pixmap = QPixmap(ruta_logo)
+            # Aumentamos un poco el tamaño a 45 o 50 para que luzca más
+            pixmap_redim = pixmap.scaledToHeight(45, Qt.SmoothTransformation)
+            logo_label.setPixmap(pixmap_redim)
+        else:
+            logo_label.setText("") # Si no hay logo, no mostramos nada en este label
+
+        # 3. El Título (Texto)
+        title_label = QLabel("")
+        title_label.setObjectName('logo_text') # Usaremos este ID para darle estilo en CSS
+        # Estilo directo para asegurar que se vea bien (o muévelo al QSS)
+        title_label.setStyleSheet("""
+            color: white;
+            font-size: 22px;
+            font-weight: 900;
+            font-family: "Segoe UI", sans-serif;
+            letter-spacing: 1px;
+        """)
+
+        # 4. Añadimos ambos al layout de marca
+        brand_layout.addWidget(logo_label)
+        brand_layout.addWidget(title_label)
+
+        # 5. Añadimos el widget de marca a la barra de navegación
+        nav_layout.addWidget(brand_widget)
+        
+        # ---------------------------------------
+        
         nav_layout.addStretch()
 
         self.links = {

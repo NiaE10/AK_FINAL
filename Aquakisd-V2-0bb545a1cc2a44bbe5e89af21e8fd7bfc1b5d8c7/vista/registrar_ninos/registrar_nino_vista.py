@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QHBoxLayout, QLineEdit, QComboBox,
     QDateEdit, QRadioButton, QButtonGroup, QPushButton, QTextEdit, QMessageBox,
-    QGridLayout, QGroupBox, QFormLayout
+    QGridLayout, QGroupBox, QFormLayout, QScrollArea
 )
 from PySide6.QtCore import Qt, QDate
 
@@ -14,22 +14,26 @@ class RegistrarNinoVista(QWidget):
         self._build_ui()
 
     def _build_ui(self):
+        # Importante: Asegúrate de importar QScrollArea al inicio del archivo
+        # from PySide6.QtWidgets import ..., QScrollArea
+        
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        top_bar = QWidget()
-        top_bar.setObjectName("top_bar")
-        top_bar.setFixedHeight(80)
-        main_layout.addWidget(top_bar)
-
-        central_widget = self._create_central_widget()
-        main_layout.addWidget(central_widget, 1)
-
-        bottom_bar = QWidget()
-        bottom_bar.setObjectName("bottom_bar")
-        bottom_bar.setFixedHeight(80)
-        main_layout.addWidget(bottom_bar)
+        # 1. Scroll Area para que el formulario quepa en cualquier pantalla
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True) # Esto hace que el contenido se estire a lo ancho
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        
+        # 2. Contenedor interno del formulario
+        self.contenido_scroll = self._create_central_widget()
+        self.contenido_scroll.setObjectName("central_widget_registro") # ID para el CSS
+        
+        scroll.setWidget(self.contenido_scroll)
+        main_layout.addWidget(scroll)
+        
+        # Eliminamos las barras fijas top_bar y bottom_bar que robaban espacio
 
     def _create_central_widget(self):
         central_widget = QWidget()

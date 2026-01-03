@@ -42,7 +42,7 @@ class ControladorRegistro(QObject):
 
     def registrar_alumno(self):
         # --- 1. OBTENER DATOS Y VALIDACIONES INICIALES ---
-        datos = self.vista.obtener_datos_formulario()
+        datos = {k: v.strip() if isinstance(v, str) else v for k, v in self.vista.obtener_datos_formulario().items()}
         
         if datos['nivel'] == "-- Seleccione Nivel --":
             self.vista.mostrar_mensaje("Error: Debes seleccionar un Nivel para el alumno.")

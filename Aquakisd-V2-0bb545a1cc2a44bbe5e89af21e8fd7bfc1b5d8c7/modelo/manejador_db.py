@@ -1288,4 +1288,4 @@ class ManejadorDB:
                 
             return max(0, edad_meses)
         except Exception:
-            return 0
+            return max(0, edad_meses)

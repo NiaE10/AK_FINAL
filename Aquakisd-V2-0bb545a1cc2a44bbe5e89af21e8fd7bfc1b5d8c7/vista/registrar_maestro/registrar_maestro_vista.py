@@ -61,6 +61,10 @@ class RegistrarMaestroVista(QWidget):
         table = QTableWidget(0, 4)
         table.setObjectName("maestros_table")
         table.setHorizontalHeaderLabels(["Nombre Completo", "Número De Teléfono", "Estado", "Acciones"])
+        
+        table.verticalHeader().setVisible(True)
+        table.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
+        
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)

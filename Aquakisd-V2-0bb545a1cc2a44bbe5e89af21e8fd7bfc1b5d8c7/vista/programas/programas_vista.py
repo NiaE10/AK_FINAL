@@ -63,6 +63,10 @@ class ProgramasVista(QWidget):
         self.tabla_clases.setHorizontalHeaderLabels([
             "Horario", "Cupo Disponible", "Días", "Instructor", "Alumnos Inscritos"
         ])
+        
+        self.tabla_clases.verticalHeader().setVisible(True)
+        self.tabla_clases.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
+        
         self.tabla_clases.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tabla_clases.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
         self.tabla_clases.setEditTriggers(QTableWidget.NoEditTriggers)
