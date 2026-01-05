@@ -3,551 +3,150 @@ from datetime import datetime, timedelta
 
 DB_NAME = 'aquakids.db'
 
-# --- DATOS INICIALES ---
-programas = [
-	"PROGRAMA ESCOLAR SEMI-PRIVADO ENTRE SEMANA",
-	"PROGRAMA BEBÉS SEMI-PERSONALIZADO ENTRE SEMANA",
-	"PROGRAMA BEBÉS PERSONALIZADO ENTRE SEMANA",
-	"PROGRAMA DE ESCOLAR VERANO",
-	"PROGRAMA DE BEBES VERANO",
-	"PROGRAMA PRIVADO SABATINOS",
-	"PROGRAMA SEMI-PRIVADO ESCOLAR SABATINOS",
-	"PROGRAMA SEMI-PRIVADO BEBÉS SABATINOS",
-    "PROGRAMA MATRONATACION"
-]
-
-# Inserta los programas iniciales en la tabla PROGRAMA si no existen
 def rellenar_programas():
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for nombre in programas:
-		cursor.execute("SELECT COUNT(*) FROM PROGRAMA WHERE NOMBRE_PROGRAMA = ?", (nombre,))
-		if cursor.fetchone()[0] == 0:
-			try:
-				cursor.execute("INSERT INTO PROGRAMA (NOMBRE_PROGRAMA, NUM_CLASES) VALUES (?, ?)", (nombre, 10))
-			except sqlite3.OperationalError:
-				# Fallback for older databases without NUM_CLASES column
-				try:
-					cursor.execute("INSERT INTO PROGRAMA (NOMBRE_PROGRAMA) VALUES (?)", (nombre,))
-				except Exception:
-					# If that also fails, re-raise the original error to surface it
-					raise
-		else:
-			print(f"El programa '{nombre}' ya existe, no se crea de nuevo.")
-	conn.commit()
-	conn.close()
-	print("Programas iniciales insertados correctamente.")
+    """
+    Inserta o actualiza los programas con su configuración de clases fija.
+    El orden de esta lista determina el ID (RowID) en una base de datos nueva.
+    IDs esperados:
+    1: LMV Escolar Semi, 2: MJ Escolar Semi, 3: LMV Bebés Semi, 4: MJ Bebés Semi,
+    5: LMV Bebés Pers, 6: MJ Bebés Pers, 7: LMV Escolar Verano, 8: MJ Escolar Verano,
+    9: LMV Bebés Verano, 10: MJ Bebés Verano, 11: Privado Sab, 12: Semi Escolar Sab,
+    13: Semi Bebés Sab, 14: Matronatación.
+    """
+    configuracion_programas = {
+        "LMV - ESCOLAR SEMI-PRIVADO ENTRE SEMANA": 12,    # ID 1
+        "MJ - ESCOLAR SEMI-PRIVADO ENTRE SEMANA": 8,      # ID 2
+        "LMV - BEBÉS SEMI-PERSONALIZADO ENTRE SEMANA": 12,# ID 3
+        "MJ - BEBÉS SEMI-PERSONALIZADO ENTRE SEMANA": 8,  # ID 4
+        "LMV - BEBÉS PERSONALIZADO ENTRE SEMANA": 12,     # ID 5 (Virtual -> usa clases ID 3)
+        "MJ - BEBÉS PERSONALIZADO ENTRE SEMANA": 8,       # ID 6 (Virtual -> usa clases ID 4)
+        "LMV - ESCOLAR VERANO": 12,                       # ID 7
+        "MJ - ESCOLAR VERANO": 8,                         # ID 8
+        "MJ - BEBÉS VERANO": 8,                           # ID 9
+        "PRIVADO SABATINOS": 4,                           # ID 10
+        "SEMI-PRIVADO ESCOLAR SABATINOS": 4,              # ID 11
+        "SEMI-PRIVADO BEBÉS SABATINOS": 4,                # ID 12
+        "MATRONATACION": 4                                # ID 13
+    }
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    print("--- Actualizando Programas ---")
+    for nombre, num_clases in configuracion_programas.items():
+        cursor.execute("SELECT COUNT(*) FROM PROGRAMA WHERE NOMBRE_PROGRAMA = ?", (nombre,))
+        
+        if cursor.fetchone()[0] == 0:
+            try:
+                cursor.execute("INSERT INTO PROGRAMA (NOMBRE_PROGRAMA, NUM_CLASES) VALUES (?, ?)", (nombre, num_clases))
+            except sqlite3.OperationalError:
+                # Fallback para DB antigua sin columna NUM_CLASES
+                cursor.execute("INSERT INTO PROGRAMA (NOMBRE_PROGRAMA) VALUES (?)", (nombre,))
+        else:
+            try:
+                # Forzamos la actualización para asegurar integridad
+                cursor.execute("UPDATE PROGRAMA SET NUM_CLASES = ? WHERE NOMBRE_PROGRAMA = ?", (num_clases, nombre))
+            except sqlite3.OperationalError:
+                pass
+
+    conn.commit()
+    conn.close()
+    print("✅ Programas actualizados.")
 
 
-# Función para crear PROGRAMA matronatacion (ID 9)
-def matro_id9():
-	DIA = "Sábados"
-	EDAD_MIN = 3  # 3 años en meses
-	EDAD_MAX = 47 # 3.11 años en meses
-	CAPACIDAD = 9  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('14:15', '%H:%M')
-	HORA_FINAL = datetime.strptime('17:15', '%H:%M')
-	INTERVALO = timedelta(minutes=45)
-	ID_PROGRAMAFK = 9  # Cambia si corresponde a otro programa
+def generar_clases_desde_config():
+    """
+    Genera todas las clases del sistema basándose en una configuración maestra.
+    IMPORTANTE: No generamos clases para IDs 5 y 6 (Personalizados), ya que usan el cupo de 3 y 4.
+    """
+    
+    # CONFIGURACIÓN MAESTRA DEL SISTEMA
+    # 'sim': simultaneos (cuántos grupos/maestros se abren por horario)
+    configuraciones = [
+        # --- SÁBADOS ---
+        # ID 13: Matronatacion
+        {"id": 13, "dias": "Sábados", "inicio": "14:15", "fin": "17:15", "min": 45, "cap": 9, "emin": 3,  "emax": 47,  "sim": 1},
+        # ID 12: Semi Bebés Sab
+        {"id": 12, "dias": "Sábados", "inicio": "09:00", "fin": "14:15", "min": 45, "cap": 2, "emin": 24, "emax": 47,  "sim": 5},
+        # ID 11: Semi Escolar Sab
+        {"id": 11, "dias": "Sábados", "inicio": "09:00", "fin": "14:15", "min": 45, "cap": 2, "emin": 48, "emax": 144, "sim": 5},
+        # ID 10: Privado Sab
+        {"id": 10, "dias": "Sábados", "inicio": "09:00", "fin": "14:15", "min": 45, "cap": 1, "emin": 48, "emax": 144, "sim": 5},
 
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(1):  # Cuatro clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
+        # --- BEBÉS ENTRE SEMANA (SEMI) ---
+        # ID 4: MJ Bebés Semi (Vespertino)
+        {"id": 4, "dias": "Martes y Jueves",            "inicio": "15:00", "fin": "20:00", "min": 30, "cap": 2, "emin": 24, "emax": 47, "sim": 5},
+        # ID 3: LMV Bebés Semi (Vespertino)
+        {"id": 3, "dias": "Lunes, Miércoles y Viernes", "inicio": "15:00", "fin": "20:00", "min": 30, "cap": 2, "emin": 24, "emax": 47, "sim": 5},
+        # ID 3: LMV Bebés Semi (Matutino)
+        {"id": 3, "dias": "Lunes, Miércoles y Viernes", "inicio": "09:00", "fin": "13:00", "min": 30, "cap": 2, "emin": 24, "emax": 47, "sim": 5},
+        
+        # --- ESCOLARES ENTRE SEMANA (SEMI) ---
+        # ID 2: MJ Escolar Semi
+        {"id": 2, "dias": "Martes y jueves",            "inicio": "14:45", "fin": "20:00", "min": 45, "cap": 4, "emin": 48, "emax": 144, "sim": 2},
+        # ID 1: LMV Escolar Semi
+        {"id": 1, "dias": "Lunes, Miércoles y Viernes", "inicio": "14:45", "fin": "20:00", "min": 45, "cap": 4, "emin": 48, "emax": 144, "sim": 2},
+        
+        # --- VERANO ---
+        # ID 9: MJ Bebés Verano
+        {"id": 9, "dias": "Martes y Jueves",          "inicio": "09:00", "fin": "13:00", "min": 30, "cap": 2, "emin": 24, "emax": 47,  "sim": 5},
+        # ID 8: MJ Escolar Verano
+        {"id": 8,  "dias": "Martes y Jueves",           "inicio": "09:00", "fin": "13:00", "min": 45, "cap": 4, "emin": 48, "emax": 144, "sim": 3},
+        # ID 7: LMV Escolar Verano
+        {"id": 7,  "dias": "Lunes, Miércoles y Viernes", "inicio": "09:00", "fin": "13:00", "min": 45, "cap": 4, "emin": 48, "emax": 144, "sim": 3},
+    ]
 
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 1:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases PROGRAMA matronatacion insertadas correctamente.")
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-# Función para crear PROGRAMA SEMI-PRIVADO bebés SABATINOS (ID 8)
-def bebe_s_id8():
-	DIA = "Sábados"
-	EDAD_MIN = 24  # 2 años en meses
-	EDAD_MAX = 47 # 3.11 años en meses
-	CAPACIDAD = 2  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('9:00', '%H:%M')
-	HORA_FINAL = datetime.strptime('14:15', '%H:%M')
-	INTERVALO = timedelta(minutes=45)
-	ID_PROGRAMAFK = 8  # Cambia si corresponde a otro programa
+    print("--- Generando Clases ---")
+    total_insertadas = 0
 
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(2):  # Cuatro clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
+    for config in configuraciones:
+        hora_actual = datetime.strptime(config["inicio"], '%H:%M')
+        hora_final = datetime.strptime(config["fin"], '%H:%M')
+        intervalo = timedelta(minutes=config["min"])
+        
+        clases_a_insertar = []
+        
+        while hora_actual + intervalo <= hora_final:
+            for _ in range(config["sim"]):
+                clases_a_insertar.append((
+                    hora_actual.strftime('%H:%M'),
+                    (hora_actual + intervalo).strftime('%H:%M'),
+                    config["cap"],
+                    config["dias"],
+                    config["id"],
+                    config["emin"],
+                    config["emax"]
+                ))
+            hora_actual += intervalo
 
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 2:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases PROGRAMA SEMI-PRIVADO bebe SABATINOS insertadas correctamente.")
+        nuevas_del_programa = 0
+        for clase in clases_a_insertar:
+            cursor.execute('''
+                SELECT COUNT(*) FROM CLASES
+                WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
+            ''', (clase[0], clase[3], clase[4], clase[2]))
+            
+            if cursor.fetchone()[0] < config["sim"]:
+                cursor.execute('''
+                    INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                ''', clase)
+                nuevas_del_programa += 1
+        
+        if nuevas_del_programa > 0:
+            print(f"  > Prog ID {config['id']} ({config['dias']}): +{nuevas_del_programa} clases.")
+        total_insertadas += nuevas_del_programa
 
-# Función para crear PROGRAMA SEMI-PRIVADO ESCOLAR SABATINOS (ID 7)
-def escolar_s_id7():
-	DIA = "Sábados"
-	EDAD_MIN = 48  # 4 años en meses
-	EDAD_MAX = 144 # 12 años en meses
-	CAPACIDAD = 2  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('9:00', '%H:%M')
-	HORA_FINAL = datetime.strptime('14:15', '%H:%M')
-	INTERVALO = timedelta(minutes=45)
-	ID_PROGRAMAFK = 7  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(5):  # Cuatro clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 5:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases PROGRAMA SEMI-PRIVADO ESCOLAR SABATINOS insertadas correctamente.")
- 
-# Función para crear clases semi-privadas bebe entre semana (ID 2)
-def bebe_mj_id2():
-	DIA = "Martes y Jueves"
-	EDAD_MIN = 24  # 2 años en meses
-	EDAD_MAX = 47 # 3.11 años en meses
-	CAPACIDAD = 2  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('15:00', '%H:%M')
-	HORA_FINAL = datetime.strptime('20:00', '%H:%M')
-	INTERVALO = timedelta(minutes=30)
-	ID_PROGRAMAFK = 2  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(4):  # Cuatro clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 4:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases mj mat bebe insertadas correctamente.")
- 
-# Función para crear clases verano bebe (ID 5)
-def bebe_verano_mj_id5():
-	DIA = "Martes  y Jueves"
-	EDAD_MIN = 24  # 2 años en meses
-	EDAD_MAX = 47 # 3.11 años en meses
-	CAPACIDAD = 2  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('09:00', '%H:%M')
-	HORA_FINAL = datetime.strptime('13:00', '%H:%M')
-	INTERVALO = timedelta(minutes=30)
-	ID_PROGRAMAFK = 5  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(4):  # Cuatro clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 4:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases verano bebe insertadas correctamente.")
- 
-# Función para crear clases lmv vesp bebe (ID 2)
-def bebe_lmv_vesp_id2():
-	DIA = "Lunes, Miércoles y Viernes"
-	EDAD_MIN = 24  # 2 años en meses
-	EDAD_MAX = 47 # 3.11 años en meses
-	CAPACIDAD = 2  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('15:00', '%H:%M')
-	HORA_FINAL = datetime.strptime('20:00', '%H:%M')
-	INTERVALO = timedelta(minutes=30)
-	ID_PROGRAMAFK = 2  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(4):  # Cuatro clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 4:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases lmv vesp bebe insertadas correctamente.")
- 
-# Función para crear clases lmv mat bebe (ID 2)
-def bebe_lmv_mat_id2():
-	DIA = "Lunes, Miércoles y Viernes"
-	EDAD_MIN = 24  # 2 años en meses
-	EDAD_MAX = 47 # 3.11 años en meses
-	CAPACIDAD = 2  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('09:00', '%H:%M')
-	HORA_FINAL = datetime.strptime('13:00', '%H:%M')
-	INTERVALO = timedelta(minutes=30)
-	ID_PROGRAMAFK = 2  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(4):  # Cuatro clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 4:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases lmv mat bebe insertadas correctamente.")
-
-# Función para crear clases verano escolar mj (ID 4)
-def escolar_verano_mj_id4():
-	DIA = "Martes y Jueves"
-	EDAD_MIN = 48  # 4 años en meses
-	EDAD_MAX = 144 # 12 años en meses
-	CAPACIDAD = 4  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('9:00', '%H:%M')
-	HORA_FINAL = datetime.strptime('13:00', '%H:%M')
-	INTERVALO = timedelta(minutes=45)
-	ID_PROGRAMAFK = 4  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(3):  # Dos clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 3:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases martes y jueves verano (4-12 años, 2 maestros por horario, maestro sin asignar) insertadas correctamente.")
-
-# Función para crear clases verano escolar lmv (ID 4)
-def escolar_verano_lmv_id4():
-	DIA = "Lunes, Miércoles y Viernes"
-	EDAD_MIN = 48  # 4 años en meses
-	EDAD_MAX = 144 # 12 años en meses
-	CAPACIDAD = 4  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('9:00', '%H:%M')
-	HORA_FINAL = datetime.strptime('13:00', '%H:%M')
-	INTERVALO = timedelta(minutes=45)
-	ID_PROGRAMAFK = 4  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(3):  # Dos clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 3:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases LMV VERANO (4-12 años, 2 maestros por horario, maestro sin asignar) insertadas correctamente.")
-
-# Función para crear clases escolar semi-privado entre semana (ID 1)
-def escolar_mj_id1():
-	DIA = "Martes y jueves"
-	EDAD_MIN = 48  # 4 años en meses
-	EDAD_MAX = 144 # 12 años en meses
-	CAPACIDAD = 4  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('14:45', '%H:%M')
-	HORA_FINAL = datetime.strptime('20:00', '%H:%M')
-	INTERVALO = timedelta(minutes=45)
-	ID_PROGRAMAFK = 1  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(2):  # Dos clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 2:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases martes y jueves (4-12 años, 2 maestros por horario, maestro sin asignar) insertadas correctamente.")
-
-# Función para crear clases escolar semi-privado entre semana (ID 1)
-def escolar_lmv_id1():
-	DIA = "Lunes, Miércoles y Viernes"
-	EDAD_MIN = 48  # 4 años en meses
-	EDAD_MAX = 144 # 12 años en meses
-	CAPACIDAD = 4  # Capacidad por maestro
-	HORA_INICIO = datetime.strptime('14:45', '%H:%M')
-	HORA_FINAL = datetime.strptime('20:00', '%H:%M')
-	INTERVALO = timedelta(minutes=45)
-	ID_PROGRAMAFK = 1  # Cambia si corresponde a otro programa
-
-	clases = []
-	hora_actual = HORA_INICIO
-	while hora_actual + INTERVALO <= HORA_FINAL:
-		for _ in range(2):  # Dos clases por horario (para dos maestros)
-			clases.append({
-				'hora_inicio': hora_actual.strftime('%H:%M'),
-				'hora_fin': (hora_actual + INTERVALO).strftime('%H:%M'),
-				'capacidad': CAPACIDAD,
-				'dias': DIA,
-				'id_programa': ID_PROGRAMAFK,
-				'edad_min': EDAD_MIN,
-				'edad_max': EDAD_MAX
-				# No se asigna id_maestrofk aquí
-			})
-		hora_actual += INTERVALO
-
-	conn = sqlite3.connect(DB_NAME)
-	cursor = conn.cursor()
-	for clase in clases:
-		cursor.execute('''
-			SELECT COUNT(*) FROM CLASES
-			WHERE HORA_INICIO = ? AND DIAS_DE_CLASES = ? AND ID_PROGRAMAFK = ? AND CAPACIDAD = ? AND ID_MAESTROFK IS NULL
-		''', (clase['hora_inicio'], clase['dias'], clase['id_programa'], clase['capacidad']))
-		if cursor.fetchone()[0] < 2:
-			cursor.execute('''
-				INSERT INTO CLASES (HORA_INICIO, HORA_FIN, CAPACIDAD, DIAS_DE_CLASES, ID_PROGRAMAFK, EDAD_MIN, EDAD_MAX, ID_MAESTROFK)
-				VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-			''', (
-				clase['hora_inicio'], clase['hora_fin'], clase['capacidad'], clase['dias'], clase['id_programa'], clase['edad_min'], clase['edad_max']
-			))
-	conn.commit()
-	conn.close()
-	print("Clases lunes, miércoles y viernes (4-12 años, 2 maestros por horario, maestro sin asignar) insertadas correctamente.")
- 
+    conn.commit()
+    conn.close()
+    print(f"✅ Generación completada. Total clases nuevas: {total_insertadas}")
 
 def rellenar_todos_los_datos():
     rellenar_programas()
-    escolar_lmv_id1()
-    escolar_mj_id1()
-    escolar_verano_lmv_id4()
-    escolar_verano_mj_id4()
-    bebe_lmv_mat_id2()
-    bebe_lmv_vesp_id2()
-    bebe_mj_id2()
-    bebe_verano_mj_id5()
-    escolar_s_id7()
-    bebe_s_id8()
-    matro_id9()
+    generar_clases_desde_config()
 
 if __name__ == "__main__":
     rellenar_todos_los_datos()

@@ -8,7 +8,9 @@ class ControladorSolicitudes:
         self.controlador_alumnos = None
         if hasattr(self.vista, 'set_controlador'):
             self.vista.set_controlador(self)
-
+        if hasattr(self.vista, 'alumnos_view'):
+            self.vista.alumnos_view.estado_alumno_actualizado.connect(self.actualizar_estado_solicitud)
+            
     def set_controlador_alumnos(self, controlador_alumnos):
         self.controlador_alumnos = controlador_alumnos
 
@@ -26,10 +28,16 @@ class ControladorSolicitudes:
             self.modelo.actualizar_estado_alumno(alumno_id, nuevo_estado)
             self.vista.mostrar_mensaje(f"Estado del alumno {alumno_id} actualizado a {nuevo_estado}.")
             self.cargar_solicitudes()  # Recargar para reflejar el cambio
+            
+            # Avisamos al controlador de alumnos para que actualice su lista también
+            if self.controlador_alumnos:
+                self.controlador_alumnos.cargar_alumnos()
+            
         except Exception as e:
             print(f"Error al actualizar estado: {e}")
             self.vista.mostrar_mensaje("Error al actualizar el estado de la solicitud.")
-
+            self.buscar_alumnos()
+            
     def buscar_alumnos(self, query=None, estado=None, id_programa=None, id_clase=None, edad=None):
         """
         Busca alumnos en la lista de solicitudes con filtros adicionales.
@@ -57,4 +65,15 @@ class ControladorSolicitudes:
         """
         Carga los alumnos en estado 'Lista De Espera' o 'Prioridad' y los muestra en la vista.
         """
+        if hasattr(self.vista, 'alumnos_view'):
+            try:
+                # 1. Cargar lista de Programas
+                programas = self.modelo.obtener_programas()
+                self.vista.alumnos_view.set_programas(programas)
+                
+                # 2. Cargar lista de Clases (para el filtro de clases)
+                clases = self.modelo.obtener_clases_y_descripcion()
+                self.vista.alumnos_view.set_clases(clases)
+            except Exception as e:
+                print(f"Error cargando filtros en solicitudes: {e}")
         self.buscar_alumnos()

@@ -105,16 +105,8 @@ class ControladorInicio(QObject):
                 success = self.modelo.baja_alumno(alumno_id)
                 if success:
                     # --- VERIFICACIÓN DE RESULTADO (Feedback Inteligente) ---
-                    # Consultamos cómo quedó el alumno realmente en la BD
-                    datos_alumno = self.modelo.obtener_alumno_por_id(alumno_id)
-                    nuevo_estado = datos_alumno.get('ESTADO') if datos_alumno else 'Inactivo'
-
-                    if nuevo_estado == 'Baja Pendiente':
-                        QMessageBox.information(self.vista, "Baja Pendiente", 
-                                                "El alumno aún tiene clases pagadas. Se ha marcado como 'Baja Pendiente' y se dará de baja definitiva automáticamente al terminar su saldo.")
-                    else:
-                        QMessageBox.information(self.vista, "Baja de Alumno", 
-                                                "Alumno dado de baja correctamente (Sin clases pendientes).")
+                    QMessageBox.information(self.vista, "Baja Exitosa", 
+                                            "El alumno ha sido dado de baja (Inactivo) correctamente.")
                     
                     self.cargar_alertas()
                     self.alumno_dado_de_baja.emit()
@@ -125,7 +117,7 @@ class ControladorInicio(QObject):
 
     def reinscribir_alumno_action(self, id_inscripcion):
         """
-        Reinscribe un alumno usando el ID de la inscripción.
+        Reinscribe un alumno y muestra el nuevo saldo.
         """
         reply = QMessageBox.question(self.vista, 'Confirmar Reinscripción',
                                      '¿Está seguro de que desea reinscribir a este alumno?',
@@ -133,10 +125,23 @@ class ControladorInicio(QObject):
         if reply == QMessageBox.Yes:
             try:
                 if self.modelo.reinscribir_inscripcion(id_inscripcion):
-                    QMessageBox.information(self.vista, "Reinscripción", "Alumno reinscrito correctamente.")
+                    
+                    # --- VERIFICACIÓN INMEDIATA ---
+                    # Consultamos el saldo justo después de la operación
+                    self.modelo.cursor.execute("SELECT CLASES_RESTANTES, FECHA_FIN FROM INSCRIPCIONES WHERE ID_INSCRIPCION = ?", (id_inscripcion,))
+                    datos = self.modelo.cursor.fetchone()
+                    nuevo_saldo = datos[0]
+                    nueva_fecha = datos[1]
+
+                    QMessageBox.information(self.vista, "Éxito", 
+                                            f"Alumno reinscrito correctamente.\n\n"
+                                            f"Nuevo Saldo: {nuevo_saldo} clases.\n"
+                                            f"Vencimiento: {nueva_fecha}\n\n"
+                                            f"(El alumno desaparecerá de esta lista porque ya no es una alerta)")
+                    
                     self.cargar_alertas()
                     self.alumno_reinscrito.emit()
                 else:
-                    QMessageBox.warning(self.vista, "Reinscripción", "No se pudo reinscribir al alumno.")
+                    QMessageBox.warning(self.vista, "Error", "No se pudo reinscribir al alumno.")
             except Exception as e:
                 QMessageBox.critical(self.vista, "Error", f"Error al reinscribir al alumno: {e}")

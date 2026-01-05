@@ -56,8 +56,21 @@ def cargar_estilos_globales(app):
                 app.setStyleSheet(f.read())
                 
 DB_FILE = 'aquakids.db'
+# --- CORRECCIÓN DE RUTA DE BASE DE DATOS ---
+if getattr(sys, 'frozen', False):
+    # Si es .exe, buscar en la misma carpeta del ejecutable
+    base_dir = os.path.dirname(sys.executable)
+else:
+    # Si es código normal, buscar en la carpeta del script
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+DB_FILE = os.path.join(base_dir, 'aquakids.db')
+
 if not os.path.exists(DB_FILE):
-    print(f"Base de datos no encontrada. Creando y poblando {DB_FILE}...")
+    print(f"Base de datos no encontrada en: {DB_FILE}. Creando...")
+    # (Nota: crear_db creará el archivo en el directorio de trabajo actual,
+    # asegúrate de que tu script crear_db use también rutas absolutas si es posible,
+    # pero para la detección esto ya soluciona el problema de reinicio).
     import crear_db
     from rellenar_db import rellenar_todos_los_datos
     rellenar_todos_los_datos()
@@ -91,7 +104,7 @@ class MainWindow(QMainWindow):
             # Esto pone el logo en la barra de título y en la barra de tareas
             self.setWindowIcon(QIcon(ruta_icono))
         
-        self.modelo = ManejadorDB()
+        self.modelo = ManejadorDB(db_path=DB_FILE)
 
         container = QWidget()
         container_layout = QVBoxLayout(container)
@@ -191,6 +204,8 @@ class MainWindow(QMainWindow):
         self.controlador_maestros.maestro_actualizado.connect(self.vistas["programas"].actualizar_vista_actual)
         self.controlador_solicitudes.set_controlador_alumnos(self.controlador_alumnos)
         self.controlador_alumnos.alumno_actualizado.connect(self.controlador_solicitudes.cargar_solicitudes)
+        self.controlador_nino.alumno_registrado.connect(self.vistas["programas"].actualizar_vista_actual)
+        self.controlador_alumnos.alumno_actualizado.connect(self.controlador_nino.refrescar_cupos)
         self.controlador_inicio.alumno_dado_de_baja.connect(self.controlador_alumnos.cargar_alumnos)
         self.controlador_inicio.alumno_reinscrito.connect(self.controlador_alumnos.cargar_alumnos)
         self.controlador_nino.alumno_registrado.connect(self.controlador_alumnos.cargar_alumnos)

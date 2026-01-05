@@ -5,7 +5,7 @@ from PySide6.QtCore import Signal, QObject
 from datetime import datetime
 import re
 class ControladorRegistro(QObject):
-    alumno_registrado = Signal() # <-- Declarar la señal aquí
+    alumno_registrado = Signal() 
 
     def __init__(self, vista, modelo=None):
         super().__init__()
@@ -103,22 +103,31 @@ class ControladorRegistro(QObject):
             return
 
         # --- 3. VALIDACIÓN DE CAPACIDAD ---
-        try:
-            capacidad = self.modelo.obtener_capacidad_clase(id_clase)
-            if capacidad is None:
-                self.vista.mostrar_mensaje("No se pudo determinar la capacidad de la clase.")
-                return
+        if datos['estado'] == 'Activo':
+            try:
+                capacidad = self.modelo.obtener_capacidad_clase(id_clase)
+                if capacidad is None:
+                    self.vista.mostrar_mensaje("No se pudo determinar la capacidad de la clase.")
+                    return
                 
-            inscritos = self.modelo.contar_alumnos_en_clase(id_clase)
-            id_programa = datos.get('id_programa')
-            plazas_necesarias = 2 if id_programa in (3, 6) else 1
+                inscritos = self.modelo.contar_alumnos_en_clase(id_clase)
+                id_programa = datos.get('id_programa')
+            
+                # --- CORRECCIÓN: Convertir a INT para evitar error de comparación ---
+                try:
+                    id_prog_int = int(id_programa)
+                except (ValueError, TypeError):
+                    id_prog_int = 0
+            
+                # Ahora sí, el 5 numérico será detectado correctamente
+                plazas_necesarias = 2 if id_prog_int in (5, 6) else 1
 
-            if (inscritos + plazas_necesarias) > capacidad:
-                self.vista.mostrar_mensaje("La clase está llena. Elija otra opción o espere.")
+                if (inscritos + plazas_necesarias) > capacidad:
+                    self.vista.mostrar_mensaje("La clase está llena. Elija otra opción o espere.")
+                    return
+            except Exception as e:
+                self.vista.mostrar_mensaje(f"No se pudo verificar la capacidad: {e}")
                 return
-        except Exception as e:
-            self.vista.mostrar_mensaje(f"No se pudo verificar la capacidad: {e}")
-            return
 
         # --- 4. TRANSACCIÓN CONTROLADA SEGÚN ESTADO ---
         id_alumno_nuevo = None
@@ -153,9 +162,6 @@ class ControladorRegistro(QObject):
                         fecha_inicio
                     )
                     
-                    # Si es Activo y tiene programa especial, restamos cupo
-                    if plazas_necesarias > 1:
-                        self.modelo.restar_capacidad_clase(id_clase, plazas_necesarias)
                         
                 except Exception as e_inscripcion:
                     # --- ROLLBACK SOLO PARA ACTIVOS ---
@@ -170,6 +176,9 @@ class ControladorRegistro(QObject):
 
             self.vista.mostrar_mensaje(f"Alumno registrado correctamente con estado: {datos['estado']}.")
             self.vista.limpiar_formulario()
+            
+            self._dias_cambiado(self.vista.dias_combo.currentIndex())
+            
             self.alumno_registrado.emit()
 
         except Exception as e:
@@ -206,47 +215,26 @@ class ControladorRegistro(QObject):
         except Exception:
             nombre_prog = ''
         program_ids = self.modelo.mapear_programa_a_ids(id_prog, nombre_prog)
-        clases = self.modelo.obtener_clases_por_programas_y_dia(program_ids, dias)
-        # clases: list of tuples (ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD, ID_PROGRAMAFK)
-        for id_clase, hora_inicio, hora_fin, capacidad, id_prog_fk in clases:
-            # Obtener inscritos actuales (excluyendo lista de espera/prioridad)
-            try:
-                inscritos = self.modelo.contar_alumnos_en_clase(id_clase)
-            except Exception:
-                inscritos = 0
+        todas_clases = self.modelo.obtener_clases_detalle_por_programas(program_ids)
+        
+        for fila in todas_clases:
+            # Estructura: ID_CLASE (0), INICIO (1), FIN (2), CUPO_DISP (3), DIAS (4), ...
+            id_clase = fila[0]
+            hora_inicio = fila[1]
+            hora_fin = fila[2]
+            cupo_disp = fila[3]
+            dias_clase = fila[4]
+            
+            # Filtramos en Python para mostrar solo las del día seleccionado
+            if dias_clase != dias:
+                continue
 
-            disponibles = None
-            try:
-                if capacidad is not None:
-                    disponibles = int(capacidad) - int(inscritos)
-                    if disponibles < 0:
-                        disponibles = 0
-            except Exception:
-                disponibles = None
+            # Sanitización visual
+            disponibles = cupo_disp if cupo_disp is not None else 0
+            if disponibles < 0: 
+                disponibles = 0
 
-            # Determinar política de filtrado según el programa seleccionado
-            id_prog_actual = id_prog
-
-            # Para PROGRAMA 3 y 6 se requieren al menos 2 espacios disponibles
-            if id_prog_actual in (3, 6):
-                # Si no podemos calcular disponibles, omitimos la clase
-                if disponibles is None:
-                    continue
-                try:
-                    if int(disponibles) < 2:
-                        continue
-                except Exception:
-                    continue
-            else:
-                # Para otros programas, si la capacidad es desconocida omitimos la clase
-                if capacidad is None:
-                    continue
-
-            # Convertir horas a texto legible y mostrar disponibles
-            if disponibles is None:
-                display = f"{hora_inicio} - {hora_fin}"
-            else:
-                display = f"{hora_inicio} - {hora_fin}, (disponibles: {disponibles})"
+            display = f"{hora_inicio} - {hora_fin} (Libres: {disponibles})"
             self.vista.horario_combo.addItem(display, id_clase)
 
     def refrescar_cupos(self):

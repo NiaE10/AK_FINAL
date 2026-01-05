@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QMessageBox, QDialog
 from PySide6.QtCore import Signal, QObject
 from vista.editar.historial_vista import HistorialVista
 class ControladorAlumnos(QObject):
-    alumno_actualizado = Signal()
+    alumno_actualizado = Signal() 
             
     def __init__(self, vista, modelo):
         super().__init__()
@@ -222,3 +222,37 @@ class ControladorAlumnos(QObject):
 
         except Exception as e:
             QMessageBox.critical(self.vista, "Error", f"Error: {e}") 
+
+    def reinscribir_alumno(self, alumno_id):
+        """Reinscribe al alumno activo sumando las clases de su programa actual."""
+        # 1. Buscar inscripción activa
+        try:
+            self.modelo.cursor.execute("""
+                SELECT ID_INSCRIPCION FROM INSCRIPCIONES
+                WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
+            """, (alumno_id,))
+            resultado = self.modelo.cursor.fetchone()
+            
+            if not resultado:
+                QMessageBox.warning(self.vista, "Error", "El alumno no tiene una inscripción activa para reinscribir.")
+                return
+
+            id_inscripcion = resultado[0]
+            
+            # 2. Confirmación
+            reply = QMessageBox.question(self.vista, 'Confirmar Reinscripción', 
+                                         '¿Desea reinscribir al alumno? Se sumarán las clases del programa y se extenderá la fecha de vencimiento.',
+                                         QMessageBox.Yes | QMessageBox.No)
+            
+            if reply == QMessageBox.Yes:
+                if self.modelo.reinscribir_inscripcion(id_inscripcion):
+                    QMessageBox.information(self.vista, "Éxito", "Alumno reinscrito correctamente.")
+                    self.vista.refrescar_tabla()
+                    self.alumno_actualizado.emit() # Señal vital para actualizar otras vistas
+                else:
+                    QMessageBox.critical(self.vista, "Error", "No se pudo realizar la reinscripción.")
+                    
+        except Exception as e:
+            QMessageBox.critical(self.vista, "Error", f"Ocurrió un error: {e}")
+            
+            

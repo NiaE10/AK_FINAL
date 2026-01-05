@@ -5,8 +5,6 @@ from datetime import datetime, timedelta
 import math
 import re
 
-from certifi import where
-
 class ManejadorDB:
     def __init__(self, db_path='aquakids.db'):
         self.db_path = db_path
@@ -168,13 +166,12 @@ class ManejadorDB:
 
     def reinscribir_inscripcion(self, id_inscripcion):
         """
-        Reinscribe al alumno, sumando el número de clases del programa
-        y recalculando la fecha de fin a partir de la fecha de fin existente o de hoy.
+        Reinscribe al alumno: suma clases, extiende fecha y REACTIVA al alumno si estaba en Baja Pendiente.
         """
         try:
-            # 1. Obtener datos de la inscripción, incluyendo la fecha de fin actual
+            # 1. Obtener datos de la inscripción
             self.cursor.execute("""
-                SELECT I.ID_PROGRAMA, I.ID_CLASE, C.DIAS_DE_CLASES, I.FECHA_FIN
+                SELECT I.ID_PROGRAMA, I.ID_CLASE, C.DIAS_DE_CLASES, I.FECHA_FIN, I.ID_ALUMNO
                 FROM INSCRIPCIONES I
                 JOIN CLASES C ON I.ID_CLASE = C.ID_CLASE
                 WHERE I.ID_INSCRIPCION = ?
@@ -183,39 +180,31 @@ class ManejadorDB:
             if not resultado_inscripcion:
                 raise ValueError(f"No se encontró la inscripción con ID {id_inscripcion}")
 
-            id_programa, id_clase, dias_clase, fecha_fin_actual_str = resultado_inscripcion
+            id_programa, id_clase, dias_clase, fecha_fin_actual_str, id_alumno = resultado_inscripcion
 
-            # 2. Obtener el NUM_CLASES del programa
+            # 2. Obtener clases a sumar
             self.cursor.execute("SELECT NUM_CLASES FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_programa,))
             resultado_programa = self.cursor.fetchone()
+            num_clases_a_sumar = resultado_programa[0] if (resultado_programa and resultado_programa[0]) else 10
 
-            if not resultado_programa or resultado_programa[0] is None:
-                num_clases_a_sumar = 10
-                print(f"Advertencia: El programa con ID {id_programa} no tiene un número de clases definido. Se usarán 10 clases por defecto.")
-            else:
-                num_clases_a_sumar = resultado_programa[0]
-
-            # 3. Determinar la fecha de partida para el cálculo
+            # 3. Calcular fechas
             hoy = datetime.now().date()
             fecha_de_partida = hoy
-
             if fecha_fin_actual_str:
                 try:
                     fecha_fin_actual = datetime.fromisoformat(fecha_fin_actual_str).date()
                     if fecha_fin_actual > hoy:
                         fecha_de_partida = fecha_fin_actual
-                except (ValueError, TypeError):
-                    # Si la fecha_fin_actual no es válida, simplemente usamos hoy
+                except Exception:
                     pass
         
-            # 4. Calcular la nueva fecha de fin
             nueva_fecha_fin = self.calcular_fecha_vencimiento(
                 fecha_de_partida.isoformat(), 
                 num_clases_a_sumar, 
                 dias_clase
             )
 
-            # 5. Actualizar la inscripción
+            # 4. Actualizar INSCRIPCIÓN (Suma clases)
             self.cursor.execute("""
                 UPDATE INSCRIPCIONES
                 SET CLASES_RESTANTES = COALESCE(CLASES_RESTANTES, 0) + ?,
@@ -223,24 +212,28 @@ class ManejadorDB:
                 WHERE ID_INSCRIPCION = ?
             """, (num_clases_a_sumar, nueva_fecha_fin, id_inscripcion))
 
-            self.conn.commit()
-            self.cursor.execute("SELECT ID_ALUMNO FROM INSCRIPCIONES WHERE ID_INSCRIPCION = ?", (id_inscripcion,))
-            id_alumno_res = self.cursor.fetchone()
-            if id_alumno_res:
-                self.cursor.execute("SELECT NOMBRE_PROGRAMA FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_programa,))
-                nombre_programa_res = self.cursor.fetchone()
-                nombre_programa = nombre_programa_res[0] if nombre_programa_res else f"ID {id_programa}"
-    
-                self.cursor.execute("SELECT DIAS_DE_CLASES, HORA_INICIO FROM CLASES WHERE ID_CLASE = ?", (id_clase,))
-                clase_res = self.cursor.fetchone()
-                horario_clase = f"{clase_res[0]} - {clase_res[1]}" if clase_res else f"ID {id_clase}"
-                
-                detalles = f"Reinscrito en {nombre_programa}, horario: {horario_clase}."
-                self.agregar_historial(id_alumno_res[0], "Reinscripción", detalles, fecha_inicio=fecha_de_partida.isoformat(), fecha_fin=nueva_fecha_fin)
+            # 5. [CORRECCIÓN CRÍTICA] FORZAR ESTADO 'ACTIVO' EN EL ALUMNO
+            # Si el alumno estaba en 'Baja Pendiente', al pagar se le debe quitar ese estado.
+            self.cursor.execute("""
+                UPDATE ALUMNOS 
+                SET ESTADO = 'Activo' 
+                WHERE ID_ALUMNO = ? 
+            """, (id_alumno,))
+
+            # 6. Historial
+            self.cursor.execute("SELECT NOMBRE_PROGRAMA FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_programa,))
+            nombre_programa_res = self.cursor.fetchone()
+            nombre_prog = nombre_programa_res[0] if nombre_programa_res else "Programa"
+            
+            detalles = f"Reinscripción (+{num_clases_a_sumar} clases). Fin: {nueva_fecha_fin}."
+            self.agregar_historial(id_alumno, "Reinscripción", detalles, 
+                                   fecha_inicio=fecha_de_partida.isoformat(), 
+                                   fecha_fin=nueva_fecha_fin)
+            
             self.conn.commit()
             return True
         except Exception as e:
-            print(f"Error al reinscribir la inscripción: {e}")
+            print(f"Error al reinscribir: {e}")
             self.conn.rollback()
             return False
 
@@ -249,26 +242,15 @@ class ManejadorDB:
         Marca 'Baja Pendiente' si tiene clases. Si no, 'Inactivo' directo.
         """
         try:
-            # 1. Verificar si tiene clases pagadas pendientes
-            self.cursor.execute("""
-                SELECT SUM(CLASES_RESTANTES) FROM INSCRIPCIONES 
-                WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
-            """, (id_alumno,))
-            row = self.cursor.fetchone()
-            total_clases = row[0] if row and row[0] else 0
-
-            if total_clases > 0:
-                # CASO A: Tiene saldo -> Baja Pendiente (Sigue entrando, sigue ocupando lugar)
-                print(f"[Info] Alumno {id_alumno} tiene {total_clases} clases. Se marca como 'Baja Pendiente'.")
-                self.cursor.execute("UPDATE ALUMNOS SET ESTADO = 'Baja Pendiente' WHERE ID_ALUMNO = ?", (id_alumno,))
-                self.agregar_historial(id_alumno, "Baja Pendiente", f"Solicitó baja pero conserva {total_clases} clases.")
-            else:
-                # CASO B: No tiene saldo -> Baja Definitiva (Libera lugar inmediatamente)
-                print(f"[Info] Alumno {id_alumno} sin clases. Baja definitiva.")
-                self.cursor.execute("UPDATE ALUMNOS SET ESTADO = 'Inactivo' WHERE ID_ALUMNO = ?", (id_alumno,))
-                self.cursor.execute("UPDATE INSCRIPCIONES SET ESTADO = 'Baja' WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'", (id_alumno,))
-                self.agregar_historial(id_alumno, "Baja", "Baja definitiva (Sin clases pendientes).")
+            # 1. Baja directa (Sin verificar clases)
+            self.cursor.execute("UPDATE ALUMNOS SET ESTADO = 'Inactivo' WHERE ID_ALUMNO = ?", (id_alumno,))
             
+            # 2. Cancelar inscripciones activas (Para limpiar la base de datos)
+            self.cursor.execute("UPDATE INSCRIPCIONES SET ESTADO = 'Baja' WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'", (id_alumno,))
+            
+            # 3. Registrar en historial
+            self.agregar_historial(id_alumno, "Baja", "Baja definitiva inmediata (Manual).")
+
             self.conn.commit()
             return True
         except Exception as e:
@@ -300,32 +282,32 @@ class ManejadorDB:
 
     def obtener_dias_para_programa(self, id_programa):
         """Devuelve la lista de días (texto) disponibles para un programa dado."""
-        # Algunos programas (3 y 6) deben tomar las clases/días de los programas 7 y 8.
-        # Normalizar la consulta para devolver los días asociados a 7 y 8 si se solicita 3 o 6.
-        if id_programa in (3, 6):
-            # Usar IN (7,8)
-            self.cursor.execute('''
-                SELECT DISTINCT DIAS_DE_CLASES FROM CLASES WHERE ID_PROGRAMAFK IN (?, ?)
-            ''', (7, 8))
-        else:
-            self.cursor.execute('''
-                SELECT DISTINCT DIAS_DE_CLASES FROM CLASES WHERE ID_PROGRAMAFK = ?
-            ''', (id_programa,))
+        
+        # --- CORRECCIÓN: REDIRECCIÓN DE PERSONALIZADOS (5->3, 6->4) ---
+        target_id = id_programa
+        if id_programa == 5: target_id = 3  # LMV Pers -> LMV Semi
+        elif id_programa == 6: target_id = 4 # MJ Pers -> MJ Semi
+        # -------------------------------------------------------------
+
+        self.cursor.execute('''
+            SELECT DISTINCT DIAS_DE_CLASES FROM CLASES WHERE ID_PROGRAMAFK = ?
+        ''', (target_id,))
         return [row[0] for row in self.cursor.fetchall()]
 
     def obtener_clases_por_programa_y_dia(self, id_programa, dias):
         """Devuelve filas de clases para un programa y día: (ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD)."""
-        # Si piden los datos para 3 o 6, devolver las clases que pertenecen a 7 y 8
-        if id_programa in (3, 6):
-            self.cursor.execute('''
-                SELECT ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD FROM CLASES
-                WHERE ID_PROGRAMAFK IN (?, ?) AND DIAS_DE_CLASES = ?
-            ''', (7, 8, dias))
-        else:
-            self.cursor.execute('''
-                SELECT ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD FROM CLASES
-                WHERE ID_PROGRAMAFK = ? AND DIAS_DE_CLASES = ?
-            ''', (id_programa, dias))
+        
+        # --- CORRECCIÓN: REDIRECCIÓN DE PERSONALIZADOS (5->3, 6->4) ---
+        target_id = id_programa
+        if id_programa == 5: target_id = 3
+        elif id_programa == 6: target_id = 4
+        # -------------------------------------------------------------
+
+        self.cursor.execute('''
+            SELECT ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD FROM CLASES
+            WHERE ID_PROGRAMAFK = ? AND DIAS_DE_CLASES = ?
+            ORDER BY HORA_INICIO ASC
+        ''', (target_id, dias))
         return self.cursor.fetchall()
 
     def obtener_rango_edad_clase(self, id_clase):
@@ -340,22 +322,21 @@ class ManejadorDB:
         return (row[0], row[1])
 
     def contar_alumnos_en_clase(self, id_clase):
-        # 1. Verificar si la clase pertenece a un programa Privado (3 o 6) para contar doble
-        self.cursor.execute("SELECT ID_PROGRAMAFK FROM CLASES WHERE ID_CLASE = ?", (id_clase,))
-        prog_row = self.cursor.fetchone()
-        factor = 2 if prog_row and prog_row[0] in (3, 6) else 1
-
-        # 2. Contar alumnos físicos (Activos + Baja Pendiente)
-        self.cursor.execute('''
-                SELECT COUNT(*) FROM ALUMNOS
-                WHERE ID_CLASEFK = ?
-                    AND ESTADO IN ('Activo', 'Baja Pendiente')
-        ''', (id_clase,))
+        """
+        Calcula la ocupación real de una clase basándose en las inscripciones activas.
+        Regla: Alumnos de Personalizado (IDs 5, 6) ocupan 2 lugares. El resto ocupa 1.
+        """
+        query = '''
+            SELECT SUM(CASE WHEN ID_PROGRAMA IN (5, 6) THEN 2 ELSE 1 END)
+            FROM INSCRIPCIONES
+            WHERE ID_CLASE = ? AND ESTADO = 'Activo'
+        '''
+        self.cursor.execute(query, (id_clase,))
         row = self.cursor.fetchone()
         
-        # 3. Retornar ocupación real (Cantidad * Factor)
-        return (row[0] if row else 0) * factor
-
+        # Si devuelve None (clase vacía), retornamos 0
+        return row[0] if row and row[0] else 0
+    
     def obtener_capacidad_clase(self, id_clase):
         self.cursor.execute('SELECT CAPACIDAD FROM CLASES WHERE ID_CLASE = ?', (id_clase,))
         row = self.cursor.fetchone()
@@ -409,24 +390,30 @@ class ManejadorDB:
         ''', (nombre, telefono, estado, id_maestro))
         self.conn.commit()
 
-    # Métodos para manejar alumnos (consultas/filtrado)
+   # Métodos para manejar alumnos (consultas/filtrado)
     def listar_alumnos(self, estado=None):
         """Devuelve lista de alumnos calculando la EDAD en tiempo real."""
         sql = '''
             SELECT A.ID_ALUMNO,
-                A.NOMBRE,
-                A.APELLIDO,
-                A.EDAD,
-                A.TELEFONO,
-                A.TELEFONO2,
-                A.FECHA_DE_NACIMIENTO,
-                P.NOMBRE_PROGRAMA,
-                A.OBSERVACIONES,
-                A.ESTADO
+                   A.NOMBRE,
+                   A.APELLIDO,
+                   A.EDAD,
+                   A.TELEFONO,
+                   A.TELEFONO2,
+                   A.FECHA_DE_NACIMIENTO,
+                   P.NOMBRE_PROGRAMA,
+                   C.DIAS_DE_CLASES || " - " || C.HORA_INICIO,
+                   I.CLASES_RESTANTES,
+                   A.OBSERVACIONES,
+                   A.ESTADO
             FROM ALUMNOS A
             LEFT JOIN CLASES C ON A.ID_CLASEFK = C.ID_CLASE
-            LEFT JOIN PROGRAMA P ON C.ID_PROGRAMAFK = P.ID_PROGRAMA
+            -- PRIMERO unimos Inscripciones para ver qué contrato tiene activo
             LEFT JOIN INSCRIPCIONES I ON A.ID_ALUMNO = I.ID_ALUMNO AND I.ESTADO = 'Activo'
+            -- LUEGO unimos Programa, priorizando el de la Inscripción (I) sobre el de la Clase (C)
+            LEFT JOIN PROGRAMA P ON P.ID_PROGRAMA = (
+                CASE WHEN I.ID_PROGRAMA IS NOT NULL THEN I.ID_PROGRAMA ELSE C.ID_PROGRAMAFK END
+            )
         '''
         params = []
         if estado in ('Activo', 'Inactivo'):
@@ -467,6 +454,11 @@ class ManejadorDB:
         return col
 
     def buscar_alumnos(self, query=None, estado=None, id_programa=None, id_clase=None, edad=None):
+        """
+        Busca alumnos con filtros.
+        IMPORTANTE: Devuelve siempre las 13 columnas para mantener consistencia con la vista.
+        """
+        
         sql = '''
             SELECT A.ID_ALUMNO,
                    A.NOMBRE,
@@ -476,15 +468,22 @@ class ManejadorDB:
                    A.TELEFONO2,
                    A.FECHA_DE_NACIMIENTO,
                    P.NOMBRE_PROGRAMA,
+                   C.DIAS_DE_CLASES || " - " || C.HORA_INICIO,
+                   I.CLASES_RESTANTES,
                    A.OBSERVACIONES,
                    A.ESTADO
             FROM ALUMNOS A
             LEFT JOIN CLASES C ON A.ID_CLASEFK = C.ID_CLASE
-            LEFT JOIN PROGRAMA P ON C.ID_PROGRAMAFK = P.ID_PROGRAMA
+            -- PRIMERO unimos Inscripciones para ver qué contrato tiene activo
             LEFT JOIN INSCRIPCIONES I ON A.ID_ALUMNO = I.ID_ALUMNO AND I.ESTADO = 'Activo'
+            -- LUEGO unimos Programa, priorizando el de la Inscripción (I) sobre el de la Clase (C)
+            LEFT JOIN PROGRAMA P ON P.ID_PROGRAMA = (
+                CASE WHEN I.ID_PROGRAMA IS NOT NULL THEN I.ID_PROGRAMA ELSE C.ID_PROGRAMAFK END
+            )
         '''
         where = []
         params = []
+        
         if query:
             # 1. Normalizar query (Mayúsculas y sin acentos) en Python
             trans_table = str.maketrans("ÁÉÍÓÚÑáéíóúñ", "AEIOUNAEIOUN")
@@ -518,6 +517,7 @@ class ManejadorDB:
         if id_programa:
             where.append('C.ID_PROGRAMAFK = ?')
             params.append(id_programa)
+        
         if id_clase:
             where.append('A.ID_CLASEFK = ?')
             params.append(id_clase)
@@ -573,13 +573,21 @@ class ManejadorDB:
         
         id_clase_actual = None
         estado_actual = None
+        id_programa_actual = None # Variable crítica para detectar cambios
         
-        # 1. Obtener datos actuales
-        self.cursor.execute('SELECT ID_CLASEFK, ESTADO FROM ALUMNOS WHERE ID_ALUMNO = ?', (alumno_id,))
+        # 1. Obtener datos actuales (CLASE, ESTADO y PROGRAMA ACTIVO)
+        self.cursor.execute('''
+            SELECT A.ID_CLASEFK, A.ESTADO, I.ID_PROGRAMA
+            FROM ALUMNOS A
+            LEFT JOIN INSCRIPCIONES I ON A.ID_ALUMNO = I.ID_ALUMNO AND I.ESTADO = 'Activo'
+            WHERE A.ID_ALUMNO = ?
+        ''', (alumno_id,))
         row = self.cursor.fetchone()
+
         if row:
             id_clase_actual = row[0]
             estado_actual = row[1]
+            id_programa_actual = row[2]
 
         # 2. Determinar Clase Destino
         id_clase_destino = datos_actualizados.get('id_clasefk')
@@ -594,14 +602,36 @@ class ManejadorDB:
         if nuevo_estado == 'Activo' and not id_clase_destino:
             raise ValueError("No se puede activar al alumno sin asignarle un Programa y una Clase.")
         
-        verificar_cupo = False
-        if nuevo_estado == 'Activo':
-            if estado_actual != 'Activo':
-                verificar_cupo = True # Está entrando de fuera
-            elif id_clase_actual != id_clase_destino:
-                verificar_cupo = True # Se está cambiando de grupo
-        
-            # VALIDACIÓN: RANGO DE EDAD
+        # --- CORRECCIÓN DE LÓGICA DE CUPOS (Blindaje contra Overbooking) ---
+        if nuevo_estado == 'Activo' and id_clase_destino:
+            # A. Calcular capacidad total
+            capacidad = self.obtener_capacidad_clase(id_clase_destino) or 0
+            
+            # B. Contar ocupados por OTROS (excluyendo al alumno actual para evitar duplicidad o peso viejo)
+            self.cursor.execute('''
+                SELECT SUM(CASE WHEN ID_PROGRAMA IN (5, 6) THEN 2 ELSE 1 END)
+                FROM INSCRIPCIONES
+                WHERE ID_CLASE = ? AND ESTADO = 'Activo' AND ID_ALUMNO != ?
+            ''', (id_clase_destino, alumno_id))
+            row_oc = self.cursor.fetchone()
+            ocupados_otros = row_oc[0] if row_oc and row_oc[0] else 0
+
+            # C. Determinar peso NUEVO (CONVERSIÓN ESTRICTA A INT)
+            try:
+                raw_prog = datos_actualizados.get('id_programafk')
+                id_prog_destino = int(raw_prog) if raw_prog is not None else 0
+            except (ValueError, TypeError):
+                id_prog_destino = 0
+
+            # Si id_prog_destino es 5 o 6, vale 2. Si no, vale 1.
+            peso_nuevo = 2 if id_prog_destino in (5, 6) else 1
+
+            # D. Verificación Matemática
+            if (ocupados_otros + peso_nuevo) > capacidad:
+                raise ValueError(f"No hay cupo suficiente para el cambio. "
+                                 f"Libres: {capacidad - ocupados_otros}, Necesarios: {peso_nuevo}.")
+            
+            # E. Validación de Edad (Solo si pasa el cupo)
             rango_edad = self.obtener_rango_edad_clase(id_clase_destino)
             if rango_edad:
                 edad_min, edad_max = rango_edad
@@ -609,7 +639,6 @@ class ManejadorDB:
                 edad_real_meses = self._calcular_edad_meses(fecha_nac_str)
                 
                 if not (edad_min <= edad_real_meses <= edad_max):
-                    # Función interna para formatear "X años y Y meses"
                     def fmt_edad(meses_totales):
                         anios = meses_totales // 12
                         meses = meses_totales % 12
@@ -621,36 +650,25 @@ class ManejadorDB:
                     txt_alumno = fmt_edad(edad_real_meses)
                     txt_min = fmt_edad(edad_min)
                     txt_max = fmt_edad(edad_max)
-                    
-                    raise ValueError(f"No se puede asignar: El alumno tiene {txt_alumno} y este grupo es para niños de {txt_min} a {txt_max}.")
-                
-        if verificar_cupo and id_clase_destino:
-            capacidad = self.obtener_capacidad_clase(id_clase_destino) or 0
-            ocupados = self.contar_alumnos_en_clase(id_clase_destino)
-            if ocupados >= capacidad:
-                raise ValueError(f"La clase seleccionada está llena ({ocupados}/{capacidad}). No se puede guardar.")
+
+                    raise ValueError(f"Edad incompatible: El alumno tiene {txt_alumno} "
+                                     f"y el grupo es de {txt_min} a {txt_max}.")
         
-        # --- INTERCEPCIÓN: PROTECCIÓN DE SALDO (Baja Pendiente) ---
-        if nuevo_estado == 'Inactivo':
-             # Verificamos si tiene clases pagadas antes de permitir la muerte civil del alumno
-             self.cursor.execute("SELECT SUM(CLASES_RESTANTES) FROM INSCRIPCIONES WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'", (alumno_id,))
-             row_saldo = self.cursor.fetchone()
-             saldo = row_saldo[0] if row_saldo and row_saldo[0] else 0
-             
-             if saldo > 0:
-                 print(f"[Sistema] Alumno {alumno_id} intenta Baja pero tiene {saldo} clases. Se fuerza 'Baja Pendiente'.")
-                 nuevo_estado = 'Baja Pendiente'
-                 datos_actualizados['estado'] = 'Baja Pendiente'
-                 # Al cambiar el estado a 'Baja Pendiente':
-                 # 1. No entrará en el bloque siguiente de limpiar clase (seguirá teniendo cupo).
-                 # 2. No entrará en el CASO C (Baja) de las inscripciones, por lo que su contrato seguirá 'Activo' y descontando clases.
+        # CASO C: BAJA DEL ALUMNO (Pasa a Inactivo)
+        elif nuevo_estado in ('Inactivo', 'Lista De Espera', 'Prioridad') and estado_actual == 'Activo':
+             # ...
+             self.cursor.execute("""
+                UPDATE INSCRIPCIONES 
+                SET ESTADO = 'Baja' 
+                WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
+             """, (alumno_id,))
 
         # Si pasa a Inactivo, limpiamos la clase
         if nuevo_estado == 'Inactivo':
             datos_actualizados['id_clasefk'] = None
             id_clase_destino = None
 
-        # --- LÓGICA DE HISTORIAL ---
+        # --- LÓGICA DE HISTORIAL DE ESTADO ---
         if estado_actual and nuevo_estado and estado_actual != nuevo_estado:
             detalles = f"Estado: {estado_actual} a {nuevo_estado}."
             f_ini = None
@@ -672,7 +690,6 @@ class ManejadorDB:
                         f_fin = self.calcular_fecha_vencimiento(f_ini, datos_calc[1], datos_calc[0])
 
             self.agregar_historial(alumno_id, "Cambio de Estado", detalles, fecha_inicio=f_ini, fecha_fin=f_fin)
-        # ---------------------------
 
         # 4. ACTUALIZAR TABLA ALUMNOS (Perfil)
         sql = '''
@@ -707,7 +724,6 @@ class ManejadorDB:
         # 5. --- LÓGICA DE TRANSICIÓN DE ESTADO (EL CEREBRO DEL CAMBIO) ---
         
         # CASO A: EL ALUMNO SE ESTÁ ACTIVANDO (Viene de Espera, Inactivo o Prioridad -> ACTIVO)
-        # Acción: ¡Debemos crearle su contrato (Inscripción) inmediatamente!
         if nuevo_estado == 'Activo' and estado_actual != 'Activo':
             print(f"[Info] Promoviendo alumno {alumno_id} a Activo. Generando inscripción...")
             
@@ -720,34 +736,77 @@ class ManejadorDB:
                 # Usamos la fecha que viene del formulario o HOY por defecto
                 fecha_inicio = datos_actualizados.get('fecha_inicio_actividad', datetime.now().strftime('%Y-%m-%d'))
                 
-                # Verificar que no tenga ya una inscripción activa (por seguridad)
+                # Verificar que no tenga ya una inscripción activa
                 self.cursor.execute("SELECT ID_INSCRIPCION FROM INSCRIPCIONES WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'", (alumno_id,))
                 if not self.cursor.fetchone():
-                    # CREAR LA INSCRIPCIÓN (Llamamos a tu método existente)
                     self.crear_inscripcion(alumno_id, id_programa_asociado, id_clase_destino, fecha_inicio)
                 else:
                     print("[Aviso] El alumno ya tenía inscripción activa. No se duplicó.")
 
-        # CASO B: EL ALUMNO YA ERA ACTIVO Y SOLO CAMBIÓ DE CLASE
-        # Acción: Actualizar su inscripción existente para que apunte a la nueva clase.
-        elif nuevo_estado == 'Activo' and estado_actual == 'Activo' and id_clase_actual != id_clase_destino:
-             # 1. Buscamos a qué programa pertenece la NUEVA clase
-             self.cursor.execute("SELECT ID_PROGRAMAFK FROM CLASES WHERE ID_CLASE = ?", (id_clase_destino,))
-             row_prog_nuevo = self.cursor.fetchone()
-             
-             if row_prog_nuevo:
-                 id_programa_nuevo = row_prog_nuevo[0]
-                 print(f"[Info] Migrando inscripción de alumno {alumno_id} a Clase {id_clase_destino} / Programa {id_programa_nuevo}.")
+        # CASO B: EL ALUMNO YA ERA ACTIVO Y SOLO CAMBIÓ DE CLASE O PROGRAMA
+        elif nuevo_estado == 'Activo' and estado_actual == 'Activo':
+            id_prog_form = datos_actualizados.get('id_programafk')
+            
+            if id_prog_form and id_clase_destino:
                  
-                 # 2. Actualizamos AMBOS punteros (Clase y Programa)
-                 self.cursor.execute("""
-                    UPDATE INSCRIPCIONES 
-                    SET ID_CLASE = ?, ID_PROGRAMA = ?
-                    WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
-                 """, (id_clase_destino, id_programa_nuevo, alumno_id))
+                 # --- LÓGICA DE CAMBIO DE PROGRAMA (SUMA CLASES Y EXTENSIÓN) ---
+                 if id_programa_actual and str(id_programa_actual) != str(id_prog_form):
+                     # A. Registro en Historial
+                     try:
+                        self.cursor.execute("SELECT NOMBRE_PROGRAMA FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_programa_actual,))
+                        r1 = self.cursor.fetchone()
+                        n_ant = r1[0] if r1 else "Desc."
+                        self.cursor.execute("SELECT NOMBRE_PROGRAMA FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_prog_form,))
+                        r2 = self.cursor.fetchone()
+                        n_nue = r2[0] if r2 else "Desc."
+                        self.agregar_historial(alumno_id, "Cambio de Programa", f"{n_ant} -> {n_nue}")
+                     except Exception:
+                         pass
+
+                     # B. Obtener clases a sumar y datos para recalcular vencimiento
+                     self.cursor.execute("SELECT NUM_CLASES FROM PROGRAMA WHERE ID_PROGRAMA = ?", (id_prog_form,))
+                     row_prog = self.cursor.fetchone()
+                     clases_nuevas = row_prog[0] if row_prog else 0
+
+                     self.cursor.execute("SELECT FECHA_FIN FROM INSCRIPCIONES WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'", (alumno_id,))
+                     row_ins = self.cursor.fetchone()
+                     fecha_fin_curr = row_ins[0] if row_ins else None
+                     
+                     self.cursor.execute("SELECT DIAS_DE_CLASES FROM CLASES WHERE ID_CLASE = ?", (id_clase_destino,))
+                     row_clase = self.cursor.fetchone()
+                     dias_nuevos = row_clase[0] if row_clase else ""
+
+                     # C. Calcular nueva fecha base (Hoy o el vencimiento actual si es futuro)
+                     hoy = datetime.now().date()
+                     fecha_base = hoy
+                     if fecha_fin_curr:
+                         try:
+                             f_obj = datetime.fromisoformat(fecha_fin_curr).date()
+                             if f_obj > hoy: fecha_base = f_obj
+                         except: pass
+
+                     nueva_fecha_fin = self.calcular_fecha_vencimiento(fecha_base.isoformat(), clases_nuevas, dias_nuevos)
+
+                     # D. Actualizar SUMANDO clases y EXTENDIENDO fecha
+                     print(f"[Info] Cambio de programa: Sumando {clases_nuevas} clases.")
+                     self.cursor.execute("""
+                        UPDATE INSCRIPCIONES 
+                        SET ID_CLASE = ?, ID_PROGRAMA = ?, 
+                            CLASES_RESTANTES = COALESCE(CLASES_RESTANTES, 0) + ?, 
+                            FECHA_FIN = ?
+                        WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
+                     """, (id_clase_destino, id_prog_form, clases_nuevas, nueva_fecha_fin, alumno_id))
+                 
+                 else:
+                     # E. Mismo programa, solo cambio de clase (Mantiene saldo intacto)
+                     print(f"[Info] Cambio de clase (mismo programa).")
+                     self.cursor.execute("""
+                        UPDATE INSCRIPCIONES 
+                        SET ID_CLASE = ?
+                        WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
+                     """, (id_clase_destino, alumno_id))
         
         # CASO C: BAJA DEL ALUMNO (Pasa a Inactivo)
-        # Acción: Cancelar inscripciones.
         elif nuevo_estado in ('Inactivo', 'Lista De Espera', 'Prioridad') and estado_actual == 'Activo':
              print(f"[Info] Dando de baja inscripciones del alumno {alumno_id}.")
              self.cursor.execute("""
@@ -756,7 +815,7 @@ class ManejadorDB:
                 WHERE ID_ALUMNO = ? AND ESTADO = 'Activo'
              """, (alumno_id,))
         
-        self.conn.commit()      
+        self.conn.commit()        
     
     def actualizar_estado_alumno(self, alumno_id, nuevo_estado):
         """Actualiza el estado. RESTRICCIÓN: Requiere clase para activar."""
@@ -804,30 +863,24 @@ class ManejadorDB:
         self.conn.commit()
                 
     def obtener_clases_y_descripcion(self):
-        self.cursor.execute('SELECT ID_CLASE, DIAS_DE_CLASES || " - " || HORA_INICIO, ID_PROGRAMAFK FROM CLASES')
+        self.cursor.execute('SELECT ID_CLASE, DIAS_DE_CLASES || " - " || HORA_INICIO, ID_PROGRAMAFK FROM CLASES ORDER BY HORA_INICIO ASC')
         return self.cursor.fetchall()
 
     def mapear_programa_a_ids(self, id_prog=None, nombre_prog=''):
-        """Devuelve una tupla de id_programa a usar para consultas, aplicando reglas de mapeo.
-
-        Reglas actuales:
-        - Si el nombre coincide con 'PROGRAMA BEBÉS PERSONALIZADO ENTRE SEMANA' -> usar (2,)
-        - Si id_prog es 3 -> usar (7,8)
-        - Si id_prog es 6 -> usar (7,8)
-        - En otro caso devolver (id_prog,) si no es None, o () si es None
+        """
+        Mapea IDs virtuales a IDs físicos de clases.
+        Regla: Los programas Personalizados (5 y 6) ven las clases de Semi (3 y 4).
         """
         try:
-            nombre = (nombre_prog or '').strip().upper()
+            pid = int(id_prog) if id_prog is not None else None
         except Exception:
-            nombre = ''
-        if nombre == 'PROGRAMA BEBÉS PERSONALIZADO ENTRE SEMANA':
-            return (2,)
-        try:
-            pid = int(id_prog)
-        except Exception:
-            pid = id_prog
-        if pid in (3, 6):
-            return (7, 8)
+            pid = None
+
+        # --- LÓGICA DE NEGOCIO: REDIRECCIÓN ---
+        if pid == 5: return (3,)  # LMV Personalizado -> Ve clases de LMV Semi
+        if pid == 6: return (4,)  # MJ Personalizado -> Ve clases de MJ Semi
+        # --------------------------------------
+
         if pid is None:
             return ()
         return (pid,)
@@ -852,6 +905,7 @@ class ManejadorDB:
         sql = f'''
             SELECT ID_CLASE, HORA_INICIO, HORA_FIN, CAPACIDAD, ID_PROGRAMAFK FROM CLASES
             WHERE ID_PROGRAMAFK IN ({placeholders}) AND DIAS_DE_CLASES = ?
+            ORDER BY HORA_INICIO ASC
         '''
         params = tuple(program_ids) + (dias,)
         self.cursor.execute(sql, params)
@@ -875,7 +929,7 @@ class ManejadorDB:
         if not program_ids:
             return []
         placeholders = ','.join(['?'] * len(program_ids))
-        sql = f'SELECT ID_CLASE, DIAS_DE_CLASES || " - " || HORA_INICIO AS DESCRIP, ID_PROGRAMAFK FROM CLASES WHERE ID_PROGRAMAFK IN ({placeholders})'
+        sql = f'SELECT ID_CLASE, DIAS_DE_CLASES || " - " || HORA_INICIO AS DESCRIP, ID_PROGRAMAFK FROM CLASES WHERE ID_PROGRAMAFK IN ({placeholders}) ORDER BY HORA_INICIO ASC'
         self.cursor.execute(sql, tuple(program_ids))
         return self.cursor.fetchall()
 
@@ -890,8 +944,15 @@ class ManejadorDB:
         params = list(program_ids) # Convertir a lista para poder añadir más parámetros
 
         # Construcción base de la consulta SQL
+        # --- CORRECCIÓN: Cálculo Dinámico (Total - Ocupados = Disponible) ---
         sql = f'''
-            SELECT C.ID_CLASE, C.HORA_INICIO, C.HORA_FIN, C.CAPACIDAD, C.DIAS_DE_CLASES, C.ID_PROGRAMAFK,
+            SELECT C.ID_CLASE, C.HORA_INICIO, C.HORA_FIN, 
+                   (C.CAPACIDAD - (
+                        SELECT COALESCE(SUM(CASE WHEN I.ID_PROGRAMA IN (5, 6) THEN 2 ELSE 1 END), 0)
+                        FROM INSCRIPCIONES I
+                        WHERE I.ID_CLASE = C.ID_CLASE AND I.ESTADO = 'Activo'
+                   )) AS CUPO_DISPONIBLE,
+                   C.DIAS_DE_CLASES, C.ID_PROGRAMAFK,
                    CASE
                        WHEN M.ESTADO = 'Activo' THEN M.NOMBRE_MAESTRO
                        ELSE NULL
@@ -905,7 +966,7 @@ class ManejadorDB:
             sql += " AND (M.ESTADO = 'Activo' AND M.NOMBRE_MAESTRO LIKE ?)"
             params.append(f"%{nombre_instructor_filtro}%") 
         # -------------------------------------------------------------
-
+        sql += " ORDER BY C.HORA_INICIO ASC, C.HORA_FIN ASC"
         self.cursor.execute(sql, tuple(params)) 
         return self.cursor.fetchall()
 
@@ -981,7 +1042,7 @@ class ManejadorDB:
             )
             if self.cursor.fetchone():
                 # Ya se descontó la clase de hoy, no hacer nada.
-                continue
+                continue 
 
             # 3. Descontar la clase y registrar la asistencia
             nuevas_clases_restantes = clases_restantes - 1
