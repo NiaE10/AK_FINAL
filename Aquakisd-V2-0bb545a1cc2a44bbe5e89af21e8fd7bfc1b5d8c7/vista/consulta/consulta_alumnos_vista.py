@@ -108,7 +108,7 @@ class ConsultaAlumnosVista(QWidget):
         self.btn_editar_alumno.setCursor(Qt.PointingHandCursor) # Cursor de mano
         form_layout.addRow(self.btn_editar_alumno)
         
-        self.btn_clase_extra = QPushButton("Clase Extra (+1)")
+        self.btn_clase_extra = QPushButton("Clase Extra")
         self.btn_clase_extra.setObjectName("btn_clase_extra")
         self.btn_clase_extra.setCursor(Qt.PointingHandCursor) # Cursor de mano
         form_layout.addRow(self.btn_clase_extra)

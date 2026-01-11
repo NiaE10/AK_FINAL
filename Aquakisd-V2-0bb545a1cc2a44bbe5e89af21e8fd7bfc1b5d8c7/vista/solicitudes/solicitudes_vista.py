@@ -24,6 +24,11 @@ class SolicitudesVista(QWidget):
             combo_estado.addItem("Todos", None)
             combo_estado.addItem("Lista De Espera", "Lista De Espera")
             combo_estado.addItem("Prioridad", "Prioridad")
+            
+            # Verificamos si existe el botón y lo ocultamos
+            if hasattr(self.alumnos_view, 'btn_clase_extra'):
+                self.alumnos_view.btn_clase_extra.setVisible(False)
+            
         except Exception as e:
             print(f"Could not customize status combo box: {e}")
         
