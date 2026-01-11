@@ -384,26 +384,26 @@ class ManejadorDB:
         ''', (nombre, telefono, estado, id_maestro))
         self.conn.commit()
 
-    # Métodos para manejar alumnos (consultas/filtrado)
+   # Métodos para manejar alumnos (consultas/filtrado)
     def listar_alumnos(self, estado=None):
-        """Devuelve lista de alumnos con información básica, incluyendo Observaciones.
-        Si estado es 'Activo' o 'Inactivo' filtra por ese estado; None devuelve todos.
-        Retorna filas: (ID_ALUMNO, NOMBRE, APELLIDO, EDAD, TELEFONO, TELEFONO2, FECHA_DE_NACIMIENTO, NOMBRE_PROGRAMA, OBSERVACIONES, ESTADO)
         """
-        # Código Corregido
+        Devuelve lista de alumnos. 
+        Incluye HORARIO (índice 8) para que coincida con la estructura de 13 columnas.
+        """
         sql = '''
-            SELECT A.ID_ALUMNO,
-                A.NOMBRE,
-                A.APELLIDO,
-                A.EDAD,
-                A.TELEFONO,
-                A.TELEFONO2,
-                A.FECHA_DE_NACIMIENTO,
-                P.NOMBRE_PROGRAMA,
-                A.OBSERVACIONES,
-                A.ESTADO,
-                I.FECHA_INICIO,
-                I.FECHA_FIN
+            SELECT A.ID_ALUMNO,          -- 0
+                A.NOMBRE,                -- 1
+                A.APELLIDO,              -- 2
+                A.EDAD,                  -- 3
+                A.TELEFONO,              -- 4
+                A.TELEFONO2,             -- 5
+                A.FECHA_DE_NACIMIENTO,   -- 6
+                P.NOMBRE_PROGRAMA,       -- 7
+                (C.DIAS_DE_CLASES || ' - ' || C.HORA_INICIO) as HORARIO, -- 8 (CLAVE PARA SOLICITUDES)
+                A.OBSERVACIONES,         -- 9
+                A.ESTADO,                -- 10
+                I.FECHA_INICIO,          -- 11
+                I.FECHA_FIN              -- 12
             FROM ALUMNOS A
             LEFT JOIN CLASES C ON A.ID_CLASEFK = C.ID_CLASE
             LEFT JOIN PROGRAMA P ON C.ID_PROGRAMAFK = P.ID_PROGRAMA
@@ -411,25 +411,33 @@ class ManejadorDB:
         '''
         params = []
         if estado in ('Activo', 'Inactivo'):
-            sql += ' WHERE ESTADO = ?'
+            sql += ' WHERE A.ESTADO = ?'
             params.append(estado)
+        
+        sql += ' ORDER BY A.NOMBRE, A.APELLIDO'
         self.cursor.execute(sql, params)
         return self.cursor.fetchall()
 
     def buscar_alumnos(self, query=None, estado=None, id_programa=None, id_clase=None, edad=None):
+        """
+        Busca alumnos con filtros.
+        IMPORTANTE: Devuelve siempre las 13 columnas para mantener consistencia con la vista.
+        """
+        # CORRECCIÓN CLAVE: Usamos COALESCE para que si falta el día o la hora, no devuelva NULL todo el campo.
         sql = '''
-            SELECT A.ID_ALUMNO,
-                   A.NOMBRE,
-                   A.APELLIDO,
-                   A.EDAD,
-                   A.TELEFONO,
-                   A.TELEFONO2,
-                   A.FECHA_DE_NACIMIENTO,
-                   P.NOMBRE_PROGRAMA,
-                   A.OBSERVACIONES,
-                   A.ESTADO,
-                   I.FECHA_INICIO,
-                   I.FECHA_FIN
+            SELECT A.ID_ALUMNO,          -- 0
+                   A.NOMBRE,             -- 1
+                   A.APELLIDO,           -- 2
+                   A.EDAD,               -- 3
+                   A.TELEFONO,           -- 4
+                   A.TELEFONO2,          -- 5
+                   A.FECHA_DE_NACIMIENTO,-- 6
+                   COALESCE(P.NOMBRE_PROGRAMA, 'Sin Programa'),    -- 7 (Evita nulos en Programa)
+                   (COALESCE(C.DIAS_DE_CLASES, '?') || ' - ' || COALESCE(C.HORA_INICIO, '?')) as HORARIO, -- 8 (Evita nulos en Horario)
+                   A.OBSERVACIONES,      -- 9
+                   A.ESTADO,             -- 10
+                   I.FECHA_INICIO,       -- 11
+                   I.FECHA_FIN           -- 12
             FROM ALUMNOS A
             LEFT JOIN CLASES C ON A.ID_CLASEFK = C.ID_CLASE
             LEFT JOIN PROGRAMA P ON C.ID_PROGRAMAFK = P.ID_PROGRAMA
@@ -437,10 +445,12 @@ class ManejadorDB:
         '''
         where = []
         params = []
+        
         if query:
             like = f"%{query}%"
             where.append('(CAST(A.ID_ALUMNO AS TEXT) LIKE ? OR A.NOMBRE LIKE ? OR A.APELLIDO LIKE ? OR A.TELEFONO LIKE ?)')
             params.extend([like, like, like, like])
+        
         if estado:
             if isinstance(estado, (list, tuple)):
                 if len(estado) > 0:
@@ -450,21 +460,24 @@ class ManejadorDB:
             else:
                 where.append('A.ESTADO = ?')
                 params.append(estado)
+        
         if id_programa:
             where.append('C.ID_PROGRAMAFK = ?')
             params.append(id_programa)
+        
         if id_clase:
             where.append('A.ID_CLASEFK = ?')
             params.append(id_clase)
+        
         if edad is not None:
             edad_min = edad * 12
             edad_max = edad_min + 11
             where.append('A.EDAD BETWEEN ? AND ?')
             params.extend([edad_min, edad_max])
+        
         if where:
             sql += ' WHERE ' + ' AND '.join(where)
         
-        # LÍNEA CORREGIDA: Se eliminó GROUP BY A.ID_ALUMNO
         sql += ' ORDER BY CASE WHEN A.ESTADO = \'Prioridad\' THEN 1 WHEN A.ESTADO = \'Lista De Espera\' THEN 2 ELSE 3 END, A.NOMBRE, A.APELLIDO'
         
         self.cursor.execute(sql, params)
@@ -546,7 +559,6 @@ class ManejadorDB:
                         f_fin = self.calcular_fecha_vencimiento(f_ini, datos_calc[1], datos_calc[0])
 
             self.agregar_historial(alumno_id, "Cambio de Estado", detalles, fecha_inicio=f_ini, fecha_fin=f_fin)
-        # ---------------------------
 
         sql = '''
             UPDATE ALUMNOS SET
@@ -566,7 +578,7 @@ class ManejadorDB:
             datos_actualizados.get('estado'),
             datos_actualizados.get('nivel'),
             # Si es Inactivo forzamos None, si es Activo usamos la clase destino (validada arriba)
-            id_clase_destino if nuevo_estado == 'Activo' else None,
+            id_clase_destino,
             alumno_id
         ))
         self.conn.commit()        

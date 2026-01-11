@@ -3,7 +3,7 @@ from modelo.manejador_db import ManejadorDB
 from PySide6.QtWidgets import QMessageBox
 from PySide6.QtCore import Signal, QObject
 class ControladorRegistro(QObject):
-    alumno_registrado = Signal() # <-- Declarar la señal aquí
+    alumno_registrado = Signal() 
 
     def __init__(self, vista, modelo=None):
         super().__init__()
@@ -172,29 +172,10 @@ class ControladorRegistro(QObject):
             except Exception:
                 disponibles = None
 
-            # Determinar política de filtrado según el programa seleccionado
-            id_prog_actual = id_prog
-
-            # Para PROGRAMA 3 y 6 se requieren al menos 2 espacios disponibles
-            if id_prog_actual in (3, 6):
-                # Si no podemos calcular disponibles, omitimos la clase
-                if disponibles is None:
-                    continue
-                try:
-                    if int(disponibles) < 2:
-                        continue
-                except Exception:
-                    continue
-            else:
-                # Para otros programas, si la capacidad es desconocida omitimos la clase
-                if capacidad is None:
-                    continue
-
-            # Convertir horas a texto legible y mostrar disponibles
             if disponibles is None:
                 display = f"{hora_inicio} - {hora_fin}"
             else:
-                display = f"{hora_inicio} - {hora_fin}, (disponibles: {disponibles})"
+                display = f"{hora_inicio} - {hora_fin} (Libres: {disponibles})"
             self.vista.horario_combo.addItem(display, id_clase)
 
     def refrescar_cupos(self):

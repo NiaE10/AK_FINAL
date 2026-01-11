@@ -5,14 +5,12 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QIcon
 
-"""
-Carga y aplica estilos globales desde archivos .qss ubicados en la carpeta 'vista/estilos'.
-"""
 def cargar_estilos_globales(app):
     """
     Carga ÚNICAMENTE el archivo 'tema_global.qss' para evitar conflictos
     con estilos antiguos dispersos en otras carpetas.
     """
+    
     base_dir = os.path.dirname(os.path.abspath(__file__))
     # Ruta directa al archivo nuevo
     estilo_path = os.path.join(base_dir, 'vista', 'estilos', 'tema_global.qss')
@@ -62,7 +60,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AquaKids")
-        
+    
         # --- CÓDIGO NUEVO PARA EL ICONO (ARRIBA A LA IZQUIERDA) ---
         base_dir = os.path.dirname(os.path.abspath(__file__))
         ruta_icono = os.path.join(base_dir, 'recursos', 'logo.png') # Asegúrate que sea el nombre exacto de tu imagen
